@@ -4,6 +4,8 @@ Lightweight Python wrapper around the NASA Exoplanet Archive with practical help
 
 This package is built to make exoplanet metadata easier to use in notebooks and scripts by exposing a simple object API and automatically selecting the most reliable published values.
 
+`OSystem` is exported at package level, so you can import it directly with `from oplanet import OSystem`.
+
 ## What it is
 
 `oplanet` wraps data from:
@@ -57,7 +59,7 @@ print(get_star_aliases("TOI 1478"))
 ### 2. Explore a system, its star, and its planets
 
 ```python
-from oplanet.osystem import OSystem
+from oplanet import OSystem
 
 system = OSystem("LHS 1140")
 
@@ -73,7 +75,13 @@ print(system.b.mass_mjup)
 print(system.b.orbital_period_yrs)
 ```
 
-### 3. Get stellar photometry at a wavelength
+### 3. One-line import for common API
+
+```python
+from oplanet import OSystem, parse_star_name, get_star_aliases, get_photometry_jy
+```
+
+### 4. Get stellar photometry at a wavelength
 
 ```python
 from oplanet import get_photometry_jy
