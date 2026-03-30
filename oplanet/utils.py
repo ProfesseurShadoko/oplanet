@@ -40,5 +40,5 @@ def get_database() -> pd.DataFrame:
     """
     global database
     if database is None:
-        database = pd.read_csv(filepath)
+        database = pd.read_csv(filepath, low_memory=False)
     return database
