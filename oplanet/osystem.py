@@ -268,13 +268,13 @@ class OSystem:
 
     def display(self):
         Message("Looking at system properties").list({
-            "Star name": system.star_name,
-            "Number of planets": system.n_planets,
-            "Dataframe shape": system.df.shape,
-            "Star": system.star,
-            "Planets": system.planets,
-            "Distance (pc)": system.distance_pc,
-            "Parallax (mas)": system.parallax_mas,
+            "Star name": self.star_name,
+            "Number of planets": self.n_planets,
+            "Dataframe shape": self.df.shape,
+            "Star": self.star,
+            "Planets": self.planets,
+            "Distance (pc)": self.distance_pc,
+            "Parallax (mas)": self.parallax_mas,
         })
     
     

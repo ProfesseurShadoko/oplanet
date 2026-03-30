@@ -15,6 +15,11 @@ This package is built to make exoplanet metadata easier to use in notebooks and 
 
 For parameters with multiple entries in the archive, it chooses the best measurement by preferring rows with the smallest uncertainty bars (when available), with fallback to limits when no direct value exists.
 
+Measurement-return convention used by `OSystem`/`OStar`/`OPlanet` properties:
+
+- Standard measurement: `[value, err_pos, err_neg]`
+- No direct measurement but limits exist: `[nan, limit_upper, limit_lower]`
+
 ## Installation
 
 ### From GitHub (recommended)
@@ -46,6 +51,8 @@ Dependencies are listed in `requirements.txt`:
 - `matplotlib`
 
 ## Quick examples
+
+For a guided walkthrough with explanations and runnable cells, see [examples.ipynb](examples.ipynb).
 
 ### 1. Resolve star names and aliases
 
@@ -88,6 +95,48 @@ from oplanet import get_photometry_jy
 
 flux_jy = get_photometry_jy("LHS 1140", 11.56)
 print(flux_jy)
+```
+
+### 5. Pretty-print helpers (`display` and `print_column`)
+
+```python
+from oplanet import OSystem
+
+system = OSystem("LHS 1140")
+
+# Human-readable summary of system properties
+system.display()
+
+# Human-readable summary for star and a planet
+system.star.display()
+system.b.display()
+
+# Print raw dataframe values for a specific archive column
+system.print_column("st_age")
+```
+
+## Returned values
+
+Most numeric property getters in the object API return a NumPy array with 3 entries:
+
+- `value`: best selected value
+- `err_pos`: positive uncertainty
+- `err_neg`: negative uncertainty
+
+When no direct value is available and only limits are present, the returned array is:
+
+- `nan, limit_upper, limit_lower`
+
+Examples:
+
+```python
+system = OSystem("LHS 1140")
+
+age = system.star.age_myr
+distance = system.distance_pc
+
+print(age)       # e.g. [value, err_pos, err_neg] or [nan, upper, lower]
+print(distance)  # same convention
 ```
 
 ## Data behavior
