@@ -54,7 +54,8 @@ class OSystem:
         for alias in [
             star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
         ]:
-            self.df_star_name = star_name
+            self.df_star_name = alias
+
             self.df = get_database()[
                 get_database()["hostname"] == parse_star_name(alias)
             ].reset_index(drop=True).copy(deep=True)
@@ -64,7 +65,7 @@ class OSystem:
             raise ValueError(f"Star '{star_name}' not found in the database.")
     
     def __repr__(self):
-        return f"<{self.__class__.__name__}({self.star_name}, {len(self.df)} rows)>"
+        return f"<{self.__class__.__name__}({self.name}, {len(self.df)} rows)>"
     
     def copy(self) -> "OSystem":
         """
@@ -76,6 +77,10 @@ class OSystem:
         new_system.df_star_name = self.df_star_name
         new_system.df = self.df.copy(deep=True)
         return new_system
+    
+    # ------------------------------ #
+    # !-- Information Management --! #
+    # ------------------------------ #
     
     def _get_column_prefix(self, prefix:str) -> str:
         """
@@ -113,6 +118,10 @@ class OSystem:
         Returns the first n rows of the dataframe, with only the columns relative to the system (i.e. with prefix "sy_").
         """
         return self.restrict_to("system").df.head(n)
+    
+    @property
+    def name(self) -> str:
+        return self.star_name
     
   
     # --------------- #
@@ -181,15 +190,16 @@ class OSystem:
                 column + suffix for suffix in ["err1", "err2", "lim"] if column + suffix in self.df.columns
             ]
         ]
-        Message(f"Colmun {cstr(column):y} data:").print(self.df[columns2print])
+        Message(f"Column {cstr(column):y} data:").print(self.df[columns2print])
 
-    def _get_best_row_measure_for(self, column:str) -> np.ndarray:
+    def _get_best_row_measure_for(self, column:str, _limit:Literal[-1, 0, 1] = 0) -> np.ndarray:
         """
         For a given column, returns the row with the best measurement for that column,
         that is the measurement with lowest uncertainties (err1 and err2) and with a value (not NaN).
         If err1 and err2 are both NaN, the row with the lowest lim value is returned.
 
         We impose lim = 0, because lim=1 means that the value is an upper limit, not a real measurement.
+        When no value availalbe, we look for upper and lower limit and return [np.nan, upper_limit, lower_limit].
 
         Returns a tuple of (best_value, err1, err2) with None if the value is nan.
         """
@@ -210,19 +220,18 @@ class OSystem:
             if pd.isna(row[column]):
                 continue
             # check that float or int or idk, but number
-            if not isinstance(row[column], (float, int)):
+            #if not isinstance(row[column], (float, int)):
+            if not np.isscalar(row[column]):
                 raise ValueError(f"Column '{column}' contains non-numeric values, which is not supported.")
             row_value = row[column]
             
             # 2. Check for valid lim value
             if column + "lim" in self.df.columns:
-                if row[column + "lim"] != 0:
+                if row[column + "lim"] != _limit and not pd.isna(row[column + "lim"]):
                     continue
             
             # 3. Check for valid err1 and err2 values
             if column + "err1" in self.df.columns and column + "err2" in self.df.columns:
-                if pd.isna(row[column + "err1"]) or pd.isna(row[column + "err2"]):
-                    continue
                 row_err1 = row[column + "err1"]
                 row_err2 = row[column + "err2"]
             
@@ -232,27 +241,43 @@ class OSystem:
                 best_row_err1 = row_err1
                 best_row_err2 = row_err2
             else:
-                if np.isnan(best_row_err1):
-                    # do not update
-                    continue
-                elif np.isnan(row_err1):
+                if np.isnan(row_err1):
                     # do not update, we don't have a valid error for this row
                     continue
-                elif np.isnan(best_row_err2):
+                elif np.isnan(best_row_err1):
+                    # update, previous value doesn't have a valid error, but this one does
                     best_row_value = row_value
                     best_row_err1 = row_err1
                     best_row_err2 = row_err2
                 else:
                     if np.abs(row_err1) + np.abs(row_err2) < np.abs(best_row_err1) + np.abs(best_row_err2):
-                        print(row_err1, row_err2, best_row_err1, best_row_err2)
-                        print()
                         best_row_value = row_value
                         best_row_err1 = row_err1
                         best_row_err2 = row_err2
         
+        if np.isnan(best_row_value):
+            # retry with limit = 1 and then with limit = -1
+            if _limit == 0:
+                # check if there is an upper limit and lower limit
+                out_upper = self._get_best_row_measure_for(column, _limit=1)
+                out_lower = self._get_best_row_measure_for(column, _limit=-1)
+                return np.array([np.nan, out_upper[0], out_lower[0]])
+        
         return np.array([best_row_value, best_row_err1, best_row_err2])
     
 
+    def display(self):
+        Message("Looking at system properties").list({
+            "Star name": system.star_name,
+            "Number of planets": system.n_planets,
+            "Dataframe shape": system.df.shape,
+            "Star": system.star,
+            "Planets": system.planets,
+            "Distance (pc)": system.distance_pc,
+            "Parallax (mas)": system.parallax_mas,
+        })
+    
+    
 
     # -------------- #
     # !-- System --! #
@@ -295,6 +320,23 @@ class OSystem:
         return self.star
     
 
+    @property
+    def distance_pc(self) -> np.ndarray:
+        """
+        Returns the distance of the star in pc.
+        """
+        out = self._get_best_row_measure_for("sy_dist")
+        return out
+    
+    @property
+    def parallax_mas(self) -> np.ndarray:
+        """
+        Returns the parallax of the star in mas.
+        """
+        out = self._get_best_row_measure_for("sy_plx")
+        return out
+    
+
 
     # --------------- #
     # !-- Planets --! #
@@ -310,9 +352,13 @@ class OSystem:
     @property
     def planets(self) -> list:
         """
-        Returns a list of OPlanet objects, one for each planet in the system.
+        Returns a list of OPlanet objects, one for each planet in the system. The return list is sorted
+        by semi-major axis (inner to outer).
         """
-        return [self._get_planet(planet_letter) for planet_letter in sorted(self.df["pl_letter"].unique())]
+        out = [self._get_planet(planet_letter) for planet_letter in sorted(self.df["pl_letter"].unique())]
+        # sort them by: 1. semi axis (ineer to outer) 2. letter
+        out.sort(key=lambda planet: (planet.sma_au[0], planet.letter))
+        return out
 
     def _get_planet(self, planet_letter:str) -> "OPlanet":
         """
@@ -379,6 +425,73 @@ class OStar(OSystem):
         self.star_aliases = osystem.star_aliases
         self.df_star_name = osystem.df_star_name
 
+    @property
+    def age_myr(self) -> np.ndarray:
+        """
+        Returns the age of the star in Myr.
+        """
+        out = self._get_best_row_measure_for("st_age")
+        conversion_factor = u.Gyr.to(u.Myr)
+        return out * conversion_factor
+    
+    @property
+    def mass_solar(self) -> np.ndarray:
+        """
+        Returns the mass of the star in solar masses.
+        """
+        out = self._get_best_row_measure_for("st_mass")
+        return out
+    
+    @property
+    def radius_solar(self) -> np.ndarray:
+        """
+        Returns the radius of the star in solar radii.
+        """
+        out = self._get_best_row_measure_for("st_rad")
+        return out
+    
+    @property
+    def luminosity_solar(self) -> np.ndarray:
+        """
+        Returns the luminosity of the star in solar luminosities.
+        """
+        out = self._get_best_row_measure_for("st_lum")
+        return out
+    
+    @property
+    def teff_k(self) -> np.ndarray:
+        """
+        Returns the effective temperature of the star in K.
+        """
+        out = self._get_best_row_measure_for("st_teff")
+        return out
+    
+    @property
+    def metallicity_dex(self) -> np.ndarray:
+        """
+        Returns the metallicity of the star in dex.
+        """
+        out = self._get_best_row_measure_for("st_met")
+        return out
+    
+    @property
+    def spectral_type(self) -> str:
+        """
+        Returns the spectral type of the star.
+        """
+        return self.df["st_spectype"].iloc[0]
+
+    
+    def display(self):
+        Message(f"Star {cstr(self.star_name):y} properties:").list({
+            "Age (Myr)": self.age_myr,
+            "Mass (solar masses)": self.mass_solar,
+            "Radius (solar radii)": self.radius_solar,
+            "Luminosity (solar luminosities)": self.luminosity_solar,
+            "Effective temperature (K)": self.teff_k,
+            "Metallicity (dex)": self.metallicity_dex,
+            "Spectral type": self.spectral_type,
+        })
     
     
 
@@ -421,7 +534,7 @@ class OPlanet(OSystem):
         """
         Returns the discovery year of the planet.
         """
-        return self.df["disc_year"].iloc[0]
+        return int(np.round(self.df["disc_year"].iloc[0]))
     
     @property
     def discovery_method(self) -> str:
@@ -435,6 +548,73 @@ class OPlanet(OSystem):
     # !-- Orbital properties --! #
     # -------------------------- #
 
+    @property
+    def orbital_period_yrs(self) -> np.ndarray:
+        """
+        Returns the orbital period of the planet in years.
+        """
+        out = self._get_best_row_measure_for("pl_orbper")
+        conversion_factor = u.day.to(u.yr)
+        return out * conversion_factor
+
+    @property
+    def mass_sini_mjup(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_msinij")
+    
+    @property
+    def mass_mjup(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_bmassj")
+    
+    @property
+    def sma_au(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_orbsmax")
+    
+    @property
+    def eccentricity(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_orbeccen")
+    
+    @property
+    def inclination_deg(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_orbincl")
+    
+    @property
+    def arg_periastron_deg(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_orblper")
+    
+    @property
+    def time_periastron_jd(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_orbtper")
+    
+    @property
+    def rv_amplitude_ms(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_rvamp")
+    
+    @property
+    def radius_rjup(self) -> np.ndarray:
+        return self._get_best_row_measure_for("pl_radj")
+    
+    
+
+    # --------------- #
+    # !-- Diplsay --! #
+    # --------------- #
+
+    def display(self):
+        Message(f"Planet {cstr(self.name):y} properties:").list({
+            "Letter": self.letter,
+            "Discovery year": self.discovery_year,
+            "Discovery method": self.discovery_method,
+            "Orbital period (yrs)": self.orbital_period_yrs,
+            "Mass (Mjup)": self.mass_mjup,
+            "Mass sin(i) (Mjup)": self.mass_sini_mjup,
+            "Semi-major axis (AU)": self.sma_au,
+            "Eccentricity": self.eccentricity,
+            "Inclination (deg)": self.inclination_deg,
+            "Argument of periastron (deg)": self.arg_periastron_deg,
+            "Time of periastron (JD)": self.time_periastron_jd,
+            "RV amplitude (m/s)": self.rv_amplitude_ms,
+            "Radius (Rjup)": self.radius_rjup,
+        })
 
 
 
@@ -445,7 +625,7 @@ if __name__ == "__main__":
     # --------------------- #
     
     # 1. Load the data
-    system = OSystem("TRAPPIST-1")
+    system = OSystem("LHS 1140")
 
     Message("Looking at system properties").list({
         "Star name": system.star_name,
@@ -454,23 +634,19 @@ if __name__ == "__main__":
         "Star": system.star,
         "Planets": system.planets,
         "Planet mass": system.b._get_best_row_measure_for("pl_bmassj"),
+        "Distance (pc)": system.distance_pc,
+        "Parallax (mas)": system.parallax_mas,
     })
 
     
-
-
     # --------------- #
-    # !-- Columns --! #
+    # !-- Planets --! #
     # --------------- #
 
-    system.b.print_column("pl_bmassj")
+    system.b.display()
 
-    #print(system.b.df[["pl_bmassj", "pl_bmassjerr1", "pl_bmassjerr2", "pl_bmassjlim"]])
-    exit()
+    # ------------ #
+    # !-- Star --! #
+    # ------------ #
 
-
-    Message("Planet columns").list(system._planet_columns)
-    Message("Star columns").list(system._star_columns)
-    Message("System columns").list(system._system_columns)
-
-    print(system._get_best_row_for("pl_bmassj"))
+    system.star.display()
