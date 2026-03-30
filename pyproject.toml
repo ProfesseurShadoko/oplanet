@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oplanet"
+version = "0.1.0"
+description = "Lightweight Python wrapper around the NASA Exoplanet Archive."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "ProfesseurShadoko" }
+]
+dependencies = [
+  "oakley",
+  "numpy",
+  "pandas",
+  "astroquery",
+  "astropy",
+  "scipy",
+  "matplotlib",
+]
+keywords = ["astronomy", "exoplanets", "nasa", "astrophysics"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+[project.urls]
+Homepage = "https://github.com/ProfesseurShadoko/oplanet"
+Repository = "https://github.com/ProfesseurShadoko/oplanet"
+Issues = "https://github.com/ProfesseurShadoko/oplanet/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["oplanet*"]
+
+[tool.setuptools.package-data]
+oplanet = [
+  "data/*.csv",
+  "data/photometry/*.json",
+]
