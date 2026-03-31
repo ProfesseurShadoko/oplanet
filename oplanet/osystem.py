@@ -294,6 +294,69 @@ class OSystem:
             "Distance (pc)": self.distance_pc,
             "Parallax (mas)": self.parallax_mas,
         })
+        
+        
+    # ------------------- #
+    # !-- Fill Values --! #
+    # ------------------- #
+    
+    @staticmethod
+    def fill(values:np.ndarray, rel_uncertainty:float = 0.1, default_value:float = None) -> np.ndarray:
+        """
+        Handles values and uncertainties when they are missing. If only the value is not None, uncertaintis
+        are filled with the given relative uncertainty.
+        
+        Parameters
+        ----------
+        values : np.ndarray
+            Values as outputted by the properties. If `val, val_upper, val_lower`, returned as such.
+            If `val, np.nan, np.nan`, filled with `val, val*rel_uncertainty, -val*rel_uncertainty`.
+            If `np.nan, val_upper, np.nan`, `val_upper` is an upper limit and not an uncertainty. We then return
+            `val_upper - rel_uncertainty*val_upper, val_upper*rel_uncertainty, val_upper*rel_uncertainty`.
+            If `np.nan, np.nan, val_lower`, `val_lower` is a lower limit and not an uncertainty. We then return
+            `val_lower + rel_uncertainty*val_lower, val_lower*rel_uncertainty, val_lower*rel_uncertainty`.
+        rel_uncertainty : float, optional
+            The relative uncertainty to use when filling missing uncertainties. Default is 0.1 (10%).
+        default_value : float, optional
+            The default value to use when all values are missing. If None, an error will be raised. Default is None.
+            
+        Returns
+        -------
+        np.ndarray
+            The filled values, in the format (value, err1, err2).
+        """
+        val, val_upper, val_lower = values
+        
+        # 1. If none of them are nans
+        if not np.isnan(val):
+            return values
+        
+        # 2. If all are nans
+        if np.all(np.isnan(values)):
+            if default_value is not None:
+                val = default_value
+            else:
+                raise ValueError("All values are missing and no default value provided.")
+        
+        # 3. If uncertanties are missing, but value is not
+        if not np.isnan(val):
+            if val_upper == np.nan:
+                val_upper = val * rel_uncertainty
+            if val_lower == np.nan:
+                val_lower = -val * rel_uncertainty
+            return np.array([val, val_upper, val_lower])
+    
+        # 4. If value is missing, but there is an upper bound
+        if np.isnan(val_lower):
+            val = val_upper - rel_uncertainty * val_upper
+            return np.array([val, val_upper * rel_uncertainty, val_upper * rel_uncertainty])
+    
+        # 5. If value is missing, but there is a lower bound
+        if np.isnan(val_upper):
+            val = val_lower + rel_uncertainty * val_lower
+            return np.array([val, val_lower * rel_uncertainty, -val_lower * rel_uncertainty])
+            
+        
     
     
 
@@ -669,3 +732,10 @@ if __name__ == "__main__":
     # ------------ #
 
     system.star.display()
+    
+    # Autimatically handling values
+    system = OSystem("LHS 1140")
+    Message("LHS 1140 age is only a lower value, but we can fill it this way").list({
+        "Age output:": system.star.age_myr,
+        "Filled age output:": OSystem.fill(system.star.age_myr),
+    })
