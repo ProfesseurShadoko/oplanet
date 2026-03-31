@@ -47,22 +47,40 @@ class OSystem:
         df_star_name : str
             The name of the star as it appears in the dataframe.
         """
-        self.star_name = parse_star_name(star_name)
+        with Message.mute():
+            self.star_name = parse_star_name(star_name)
         self.star_aliases = get_star_aliases(self.star_name)
         
         # load the database
         for alias in [
-            star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
+            self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
         ]:
             self.df_star_name = alias
-
             self.df = get_database()[
-                get_database()["hostname"] == parse_star_name(alias)
+                get_database()["hostname"] == alias
             ].reset_index(drop=True).copy(deep=True)
             if len(self.df) > 0:
                 break
         else:
-            raise ValueError(f"Star '{star_name}' not found in the database.")
+            # retry by looking at columns hd_name,hip_name,tic_id,gaia_dr2_id,gaia_dr3_id
+            for helper_column, prefix in zip(["hd_name", "hip_name", "tic_id", "gaia_dr2_id", "gaia_dr3_id"], ["HD ", "HIP ", "TIC ", "Gaia DR2 ", "Gaia DR3 "]):
+                # find the correct alias for this helper column
+                matching_aliases = [
+                    alias for alias in [self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != self.star_name]]
+                    if alias.startswith(prefix)
+                ]
+                for alias in matching_aliases:
+                    self.df_star_name = alias
+                    self.df = get_database()[
+                        get_database()[helper_column] == alias
+                    ].reset_index(drop=True).copy(deep=True)
+                    if len(self.df) > 0:
+                        break
+                else:
+                    continue
+                break
+            else:
+                raise ValueError(f"Star '{star_name}' or its aliases not found in the database.")
     
     def __repr__(self):
         return f"<{self.__class__.__name__}({self.name}, {len(self.df)} rows)>"
@@ -615,6 +633,7 @@ class OPlanet(OSystem):
             "RV amplitude (m/s)": self.rv_amplitude_ms,
             "Radius (Rjup)": self.radius_rjup,
         })
+
 
 
 
