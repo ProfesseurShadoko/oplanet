@@ -6,7 +6,7 @@
 
 import oakley
 from .star_utils import get_star_aliases, parse_star_name,  get_star_name
-from .utils import get_database
+from .data_loaders import get_database, refresh_data
 
 import numpy as np
 import astropy.units as u
@@ -22,14 +22,15 @@ from typing import Literal
 # ------------ #
 
 
-class OSystem:
+class NSystem:
     """
     Class representing an exoplanetary system, with its star and its planets.
+    Data is retrieved from the NASA Exoplanet Archive.
     """
 
     def __init__(self, star_name: str):
         """
-        Initializes the OSystem object by loading the star and its planets from the database.
+        Initializes the NSystem object by loading the star and its planets from the database.
 
         Parameters
         ----------
@@ -39,7 +40,7 @@ class OSystem:
         Attributes
         ----------
         star_name : str
-            The name of the star, in the format used in the database.
+            The name of the star, given by the user.
         star_aliases : list of str
             The list of aliases of the star, provided by Simbad.
         df : pd.DataFrame
@@ -56,8 +57,8 @@ class OSystem:
             self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
         ]:
             self.df_star_name = alias
-            self.df = get_database()[
-                get_database()["hostname"] == alias
+            self.df = get_database("nasa")[
+                get_database("nasa")["hostname"] == alias
             ].reset_index(drop=True).copy(deep=True)
             if len(self.df) > 0:
                 break
@@ -71,8 +72,8 @@ class OSystem:
                 ]
                 for alias in matching_aliases:
                     self.df_star_name = alias
-                    self.df = get_database()[
-                        get_database()[helper_column] == alias
+                    self.df = get_database("nasa")[
+                        get_database("nasa")[helper_column] == alias
                     ].reset_index(drop=True).copy(deep=True)
                     if len(self.df) > 0:
                         break
@@ -85,16 +86,24 @@ class OSystem:
     def __repr__(self):
         return f"<{self.__class__.__name__}({self.name}, {len(self.df)} rows)>"
     
-    def copy(self) -> "OSystem":
+    def copy(self) -> "NSystem":
         """
-        Returns a copy of the OSystem object, without calling the __init__ method.
+        Returns a copy of the NSystem object, without calling the __init__ method.
         """
-        new_system = OSystem.__new__(OSystem)
+        new_system = NSystem.__new__(NSystem)
         new_system.star_name = self.star_name
         new_system.star_aliases = self.star_aliases
         new_system.df_star_name = self.df_star_name
         new_system.df = self.df.copy(deep=True)
         return new_system
+    
+    @staticmethod
+    def refresh():
+        """
+        Deletes database and triggers a download (of about 60s)
+        of the Nasa Exoplanet Archive.
+        """
+        refresh_data("nasa")
     
     # ------------------------------ #
     # !-- Information Management --! #
@@ -109,7 +118,7 @@ class OSystem:
         return prefix + "_"
 
     
-    def restrict_to(self, prefix:str) -> "OSystem":
+    def restrict_to(self, prefix:str) -> "NSystem":
         """
         Restricts the dataframe's columns. Three types of columns exist:
         - star columns, with prefix "st_"
@@ -365,9 +374,9 @@ class OSystem:
     # -------------- #
 
     @property
-    def system(self) -> "OSystem":
+    def system(self) -> "NSystem":
         """
-        Returns a new OSystem object with only the columns relative to the system.
+        Returns a new NSystem object with only the columns relative to the system.
         """
         out = self.copy()
         out = out.restrict_to("system")
@@ -378,23 +387,23 @@ class OSystem:
     # ------------ #
 
     @property
-    def star(self) -> "OStar":
+    def star(self) -> "NStar":
         """
-        Returns a new OSystem object with only the columns relative to the star.
+        Returns a new NSystem object with only the columns relative to the star.
         """
         out = self.copy()
         out = out.restrict_to("star")
-        return OStar(out)
+        return NStar(out)
 
     @property
-    def a(self) -> "OStar":
+    def a(self) -> "NStar":
         """
         An alias for `self.star`.
         """
         return self.star
     
     @property
-    def A(self) -> "OStar":
+    def A(self) -> "NStar":
         """
         An alias for `self.star`.
         """
@@ -433,7 +442,7 @@ class OSystem:
     @property
     def planets(self) -> list:
         """
-        Returns a list of OPlanet objects, one for each planet in the system. The return list is sorted
+        Returns a list of NPlanet objects, one for each planet in the system. The return list is sorted
         by semi-major axis (inner to outer).
         """
         out = [self._get_planet(planet_letter) for planet_letter in sorted(self.df["pl_letter"].unique())]
@@ -441,9 +450,9 @@ class OSystem:
         out.sort(key=lambda planet: (planet.sma_au[0], planet.letter))
         return out
 
-    def _get_planet(self, planet_letter:str) -> "OPlanet":
+    def _get_planet(self, planet_letter:str) -> "NPlanet":
         """
-        Returns a new OSystem object with only the columns relative to the planet with the given letter.
+        Returns a new NSystem object with only the columns relative to the planet with the given letter.
         """
         out = self.copy()
         out = out.restrict_to("planet")
@@ -451,42 +460,42 @@ class OSystem:
         out.df = out.df[out.df["pl_letter"] == planet_letter].reset_index(drop=True)
         if len(out.df) == 0:
             raise ValueError(f"Planet with letter '{planet_letter}' not found in the system.")
-        return OPlanet(out)
+        return NPlanet(out)
 
     @property
-    def b(self) -> "OPlanet":
+    def b(self) -> "NPlanet":
         return self._get_planet("b")
     
     @property
-    def c(self) -> "OPlanet":
+    def c(self) -> "NPlanet":
         return self._get_planet("c")
     
     @property
-    def d(self) -> "OPlanet":
+    def d(self) -> "NPlanet":
         return self._get_planet("d")
     
     @property
-    def e(self) -> "OPlanet":
+    def e(self) -> "NPlanet":
         return self._get_planet("e")
     
     @property
-    def f(self) -> "OPlanet":
+    def f(self) -> "NPlanet":
         return self._get_planet("f")
     
     @property
-    def g(self) -> "OPlanet":
+    def g(self) -> "NPlanet":
         return self._get_planet("g")
     
     @property
-    def h(self) -> "OPlanet":
+    def h(self) -> "NPlanet":
         return self._get_planet("h")
 
     @property
-    def i(self) -> "OPlanet":
+    def i(self) -> "NPlanet":
         return self._get_planet("i")
     
     @property
-    def j(self) -> "OPlanet":
+    def j(self) -> "NPlanet":
         return self._get_planet("j") # no system has 10 planets anyway
 
 
@@ -496,11 +505,11 @@ class OSystem:
 # !-- Star --! #
 # ------------ #
 
-class OStar(OSystem):
+class NStar(NSystem):
     """
-    Basically an alias for OSystem, but with additional properties to handle data for a single star.
+    Basically an alias for NSystem, but with additional properties to handle data for a single star.
     """
-    def __init__(self, osystem: OSystem):
+    def __init__(self, osystem: NSystem):
         self.df = osystem.df
         self.star_name = osystem.star_name
         self.star_aliases = osystem.star_aliases
@@ -581,11 +590,11 @@ class OStar(OSystem):
 # !-- Planet --! #
 # -------------- #
 
-class OPlanet(OSystem):
+class NPlanet(NSystem):
     """
-    Basically an alias for OSystem, but with additional properties to handle data for a single planet.
+    Basically an alias for NSystem, but with additional properties to handle data for a single planet.
     """
-    def __init__(self, osystem: OSystem):
+    def __init__(self, osystem: NSystem):
         self.df = osystem.df
         self.star_name = osystem.star_name
         self.star_aliases = osystem.star_aliases
@@ -707,7 +716,7 @@ if __name__ == "__main__":
     # --------------------- #
     
     # 1. Load the data
-    system = OSystem("LHS 1140")
+    system = NSystem("LHS 1140")
 
     Message("Looking at system properties").list({
         "Star name": system.star_name,
@@ -734,8 +743,8 @@ if __name__ == "__main__":
     system.star.display()
     
     # Autimatically handling values
-    system = OSystem("LHS 1140")
+    system = NSystem("LHS 1140")
     Message("LHS 1140 age is only a lower value, but we can fill it this way").list({
         "Age output:": system.star.age_myr,
-        "Filled age output:": OSystem.fill(system.star.age_myr),
+        "Filled age output:": NSystem.fill(system.star.age_myr),
     })
