@@ -24,17 +24,23 @@ df = get_database("eu")
 Message(f"Number of planets in the Exoplanet.eu database: {len(df)}")
 database_size = len(df)
 
-df = pd.read_csv(
-    "/home/kiwi/documents/these/oplanet/exoplanet_eu_sample.csv"
-)
-
 # -------------- #
 # !-- Output --! #
 # -------------- #
 
-planet_name2_aliases_map = {}
+import json
+from .data_loaders import data_folder
+json_path = os.path.join(data_folder, "planet2aliases_map.json")
+if os.path.exists(json_path):
+    with open(json_path, "r") as f:
+        planet_name2_aliases_map = json.load(f)
+else:
+    planet_name2_aliases_map = {}
 # we will revert it to have aliases to planet names
 
+# filter the df to remove every row when the planet name is already in the map
+df = df[~df["name"].isin(planet_name2_aliases_map.keys())]
+Message(f"Number of planets to process: {len(df)}")
 
 # get alias for each row
 with Task("Getting star aliases for rows..."):
@@ -43,6 +49,10 @@ with Task("Getting star aliases for rows..."):
     num_fails = 0
     
     for i in ProgressBar(range(len(df))):
+        # save the dict at each iteration
+        if i%20 == 0:
+            json.dump(planet_name2_aliases_map, open(json_path, "w"), indent=4)
+            Message("Saved checkpoint!", "#")
         row = df.iloc[i]
         star_name = row["star_name"]
         planet_name = row["name"]
@@ -104,5 +114,7 @@ Message("Summary of success rates").list({
 
 # save to json
 import json
-with open("planet_name2_aliases_map.json", "w") as f:
+from .data_loaders import data_folder
+json_path = os.path.join(data_folder, "planet2aliases_map.json")
+with open(json_path, "w") as f:
     json.dump(planet_name2_aliases_map, f, indent=4)
