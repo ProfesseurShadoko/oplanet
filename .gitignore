@@ -2,3 +2,4 @@ data
 notebooks
 __pycache__/
 **/__pycache__/
+**/trash
