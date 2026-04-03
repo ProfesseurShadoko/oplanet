@@ -17,7 +17,7 @@ from .star_utils import get_star_aliases, is_star_alias, get_star_name, parse_st
 
 from .data_loaders import check_if_old
 check_if_old("nasa")
-check_if_old("eu")
+#check_if_old("eu")
 from .utils import get_database # contains loader of the database
 from .nsystem import NSystem
-from .esystem import ESystem
+#from .esystem import ESystem

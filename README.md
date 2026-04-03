@@ -147,6 +147,7 @@ On import, the loader keeps a local CSV cache in `oplanet/data`, removes older a
 
 - Internet access is needed for Simbad/Vizier queries and first-time archive download.
 - This repository is currently source-first (requirements-driven), not a published PyPI package.
+- The support for [exoplanet.eu](https://exoplanet.eu/catalog/all_fields/) will be added once the database becomes more reliable and *code friendly*.
 
 ## License
 
