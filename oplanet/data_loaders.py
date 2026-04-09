@@ -59,7 +59,17 @@ def archive_filename(source: Literal["eu", "nasa"]):
     archive_filenames = [
         file for file in os.listdir(data_folder) if file.endswith(suffix)
     ]
-    assert len(archive_filenames) <= 1, f"More than one file found for source {source} in archive: {archive_filenames}. Should not happen."
+
+    if len(archive_filenames) > 1:
+        Message(f"More than one file found for source {source} in archive: {archive_filenames}. This should not happen. Keeping only the most recent file.", "!")
+        archive_filenames.sort(reverse=True)
+        for filename in archive_filenames[1:]:
+            os.remove(os.path.join(data_folder, filename))
+        archive_filenames = [
+            file for file in os.listdir(data_folder) if file.endswith(suffix)
+        ] # only one should be left
+    assert len(archive_filenames) <= 1, f"More than one file found for source {source} in archive: {archive_filenames}. This should not happen."
+
     return archive_filenames[0] if len(archive_filenames) == 1 else None
 
 def get_archive_date(source: Literal["eu", "nasa"]):
@@ -115,9 +125,9 @@ def refresh_data(source: Literal["eu", "nasa"]):
 def check_if_old(source: Literal["eu", "nasa"], max_age_days: int = 50):
     archive_date = get_archive_date(source)
     if archive_date is None:
-        Message(f"No archive file found for source {source}. Please refresh it with the `refresh()` static method.", "!")
+        Message(f"No archive file found for source {source}. Please refresh it with the `NSystem.refresh()` static method.", "!")
     elif (datetime.datetime.now() - archive_date).days > max_age_days:
-        Message(f"Archive file is older than {max_age_days} days. Please refresh it with the `refresh()` static method.", "!")
+        Message(f"Archive file is older than {max_age_days} days. Please refresh it with the `NSystem.refresh()` static method.", "!")
 
 
 # ------------------- #
@@ -134,6 +144,7 @@ def get_database(source: Literal["eu", "nasa"]) -> pd.DataFrame:
     assert source in ["eu", "nasa"], f"Source must be 'eu' or 'nasa', got {source}."
     global database_eu, database_nasa
     if source == "eu":
+        raise NotImplementedError("Exoplanet.eu catalog is currently not supported. Please use the NASA Exoplanet Archive instead.")
         if database_eu is None:
             filepath = archive_filename("eu")
             assert filepath is not None, "No Exoplanet.eu catalog file found in archive. Please refresh it with the `refresh()` static method."
@@ -144,6 +155,6 @@ def get_database(source: Literal["eu", "nasa"]) -> pd.DataFrame:
     elif source == "nasa":
         if database_nasa is None:
             filepath = archive_filename("nasa")
-            assert filepath is not None, "No NASA Exoplanet Archive file found in archive. Please refresh it with the `refresh()` static method."
+            assert filepath is not None, "No NASA Exoplanet Archive file found in archive. Please refresh it with the `NSystem.refresh()` static method."
             database_nasa = pd.read_csv(os.path.join(data_folder, filepath), low_memory=False)
         return database_nasa

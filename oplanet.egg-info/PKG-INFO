@@ -1,0 +1,203 @@
+Metadata-Version: 2.4
+Name: oplanet
+Version: 1.0.0
+Summary: Lightweight Python wrapper around the NASA Exoplanet Archive.
+Author: ProfesseurShadoko
+License: MIT License
+        
+        Copyright (c) 2026 Jonas Wehrung-Montpezat
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
+Project-URL: Homepage, https://github.com/ProfesseurShadoko/oplanet
+Project-URL: Repository, https://github.com/ProfesseurShadoko/oplanet
+Project-URL: Issues, https://github.com/ProfesseurShadoko/oplanet/issues
+Keywords: astronomy,exoplanets,nasa,astrophysics
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Topic :: Scientific/Engineering :: Astronomy
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: oakley
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: astroquery
+Requires-Dist: astropy
+Requires-Dist: scipy
+Requires-Dist: matplotlib
+Dynamic: license-file
+
+# oplanet
+
+Lightweight Python wrapper around the NASA Exoplanet Archive with practical helpers for stellar aliases, photometry, and system/planet properties.
+
+This package is built to make exoplanet metadata easier to use in notebooks and scripts by exposing a simple object API and automatically selecting the most reliable published values.
+
+`OSystem` is exported at package level, so you can import it directly with `from oplanet import OSystem`.
+
+## What it is
+
+`oplanet` wraps data from:
+
+- NASA Exoplanet Archive (`ps` table)
+- Simbad / Vizier utilities for star aliases, coordinates, and photometry
+
+For parameters with multiple entries in the archive, it chooses the best measurement by preferring rows with the smallest uncertainty bars (when available), with fallback to limits when no direct value exists.
+
+Measurement-return convention used by `OSystem`/`OStar`/`OPlanet` properties:
+
+- Standard measurement: `[value, err_pos, err_neg]`
+- No direct measurement but limits exist: `[nan, limit_upper, limit_lower]`
+
+## Installation
+
+### From GitHub (recommended)
+
+```bash
+pip install "git+https://github.com/ProfesseurShadoko/oplanet.git"
+```
+
+### From source
+
+```bash
+git clone https://github.com/ProfesseurShadoko/oplanet.git
+cd oplanet
+python -m venv .venv
+source .venv/bin/activate
+pip install .
+```
+
+## Requirements
+
+Dependencies are listed in `requirements.txt`:
+
+- `oakley`
+- `numpy`
+- `pandas`
+- `astroquery`
+- `astropy`
+- `scipy`
+- `matplotlib`
+
+## Quick examples
+
+For a guided walkthrough with explanations and runnable cells, see [examples.ipynb](examples.ipynb).
+
+### 1. Resolve star names and aliases
+
+```python
+from oplanet import parse_star_name, get_star_aliases
+
+print(parse_star_name("TOI 1478"))
+print(get_star_aliases("TOI 1478"))
+```
+
+### 2. Explore a system, its star, and its planets
+
+```python
+from oplanet import OSystem
+
+system = OSystem("LHS 1140")
+
+print(system.star_name)
+print(system.n_planets)
+
+# Returns [value, err1, err2] when available,
+# or [nan, upper_limit, lower_limit] when only limits exist
+print(system.distance_pc)
+print(system.star.age_myr)
+
+print(system.b.mass_mjup)
+print(system.b.orbital_period_yrs)
+```
+
+### 3. One-line import for common API
+
+```python
+from oplanet import OSystem, parse_star_name, get_star_aliases, get_photometry_jy
+```
+
+### 4. Get stellar photometry at a wavelength
+
+```python
+from oplanet import get_photometry_jy
+
+flux_jy = get_photometry_jy("LHS 1140", 11.56)
+print(flux_jy)
+```
+
+### 5. Pretty-print helpers (`display` and `print_column`)
+
+```python
+from oplanet import OSystem
+
+system = OSystem("LHS 1140")
+
+# Human-readable summary of system properties
+system.display()
+
+# Human-readable summary for star and a planet
+system.star.display()
+system.b.display()
+
+# Print raw dataframe values for a specific archive column
+system.print_column("st_age")
+```
+
+## Returned values
+
+Most numeric property getters in the object API return a NumPy array with 3 entries:
+
+- `value`: best selected value
+- `err_pos`: positive uncertainty
+- `err_neg`: negative uncertainty
+
+When no direct value is available and only limits are present, the returned array is:
+
+- `nan, limit_upper, limit_lower`
+
+Examples:
+
+```python
+system = OSystem("LHS 1140")
+
+age = system.star.age_myr
+distance = system.distance_pc
+
+print(age)       # e.g. [value, err_pos, err_neg] or [nan, upper, lower]
+print(distance)  # same convention
+```
+
+## Data behavior
+
+On import, the loader keeps a local CSV cache in `oplanet/data`, removes older archive snapshots, and refreshes stale files automatically.
+
+## Notes
+
+- Internet access is needed for Simbad/Vizier queries and first-time archive download.
+- This repository is currently source-first (requirements-driven), not a published PyPI package.
+- The support for [exoplanet.eu](https://exoplanet.eu/catalog/all_fields/) will be added once the database becomes more reliable and *code friendly*.
+
+## License
+
+MIT
