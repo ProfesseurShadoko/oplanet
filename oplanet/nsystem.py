@@ -105,6 +105,18 @@ class NSystem:
         """
         refresh_data("nasa")
     
+    @staticmethod
+    def get_database(source: Literal["eu", "nasa"] = "nasa") -> pd.DataFrame:
+        """
+        Returns the database as a pandas dataframe. If the database is not loaded, it is loaded from the archive file.
+
+        Parameters
+        ----------
+        source : str, optional
+            The source of the database. Can be "eu" for Exoplanet.eu catalog or "nasa" for NASA Exoplanet Archive. Default is "nasa".
+        """
+        return get_database(source)
+    
     # ------------------------------ #
     # !-- Information Management --! #
     # ------------------------------ #

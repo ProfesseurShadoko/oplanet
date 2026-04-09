@@ -1,0 +1,7 @@
+oakley
+numpy
+pandas
+astroquery
+astropy
+scipy
+matplotlib
