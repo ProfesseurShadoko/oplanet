@@ -130,7 +130,7 @@ class NSystem:
         return prefix + "_"
 
     
-    def restrict_to(self, prefix:str) -> "NSystem":
+    def restrict_to(self, prefix:str, keep_system_columns:bool = True) -> "NSystem":
         """
         Restricts the dataframe's columns. Three types of columns exist:
         - star columns, with prefix "st_"
@@ -143,9 +143,15 @@ class NSystem:
         ----------
         prefix : str, optional
             The prefix to restrict to. Can be "st_", "pl_" or "sy_", or "star", "planet", "system", or "st", "pl", "sy".
+        keep_system_columns : bool, optional
+            Whether to keep system columns when restricting to a different prefix. Default is True.
         """
         prefix = self._get_column_prefix(prefix)
         other_prefixes = [p for p in ["st_", "pl_", "sy_"] if p != prefix]
+        
+        if keep_system_columns:
+            other_prefixes = [p for p in other_prefixes if p != "sy_"]
+            
         columns_to_drop = [col for col in self.df.columns if any(col.startswith(other_prefix) for other_prefix in other_prefixes)]
         new_df = self.df.drop(columns=columns_to_drop)
         new_system = self.copy()
@@ -242,7 +248,7 @@ class NSystem:
 
         Returns a tuple of (best_value, err1, err2) with None if the value is nan.
         """
-        assert column in self.df.columns, f"Column '{column}' not found in the dataframe."
+        assert column in self.df.columns, f"Column '{column}' not found in the dataframe. Might be a consequence of the restriction of the dataframe to a specific prefix. For instance, `distance_pc` and `parallax_mas` are system properties, so they will not be available in `self.star` or `self.planets`."
 
         # 1. Loop over rows of the dataframe, and keep the best row and update it
         best_row_value = np.nan
@@ -421,7 +427,6 @@ class NSystem:
         """
         return self.star
     
-
     @property
     def distance_pc(self) -> np.ndarray:
         """
@@ -437,6 +442,15 @@ class NSystem:
         """
         out = self._get_best_row_measure_for("sy_plx")
         return out
+    
+    @property
+    def aliases(self) -> list:
+        """
+        Returns the list of aliases of the star, provided by Simbad.
+        """
+        if not hasattr(self, "_aliases"):
+            self._aliases = get_star_aliases(self.star_name)
+        return self._aliases
     
 
 
@@ -561,7 +575,7 @@ class NStar(NSystem):
         return out
     
     @property
-    def teff_k(self) -> np.ndarray:
+    def Teff_k(self) -> np.ndarray:
         """
         Returns the effective temperature of the star in K.
         """
@@ -590,12 +604,83 @@ class NStar(NSystem):
             "Mass (solar masses)": self.mass_solar,
             "Radius (solar radii)": self.radius_solar,
             "Luminosity (solar luminosities)": self.luminosity_solar,
-            "Effective temperature (K)": self.teff_k,
+            "Effective temperature (K)": self.Teff_k,
+            "Irradiation temparature at 1 arcsec (K)": self.Tirr_k(1),
             "Metallicity (dex)": self.metallicity_dex,
             "Spectral type": self.spectral_type,
+            
         })
     
+    # ------------------------------- #
+    # !-- Irradiation Temperature --! #
+    # ------------------------------- #
     
+    def Tirr_k(self, sep_arcsec: float | np.ndarray, albedo:float = 0) -> np.ndarray:
+        """
+        Returns the irradiation temperature of a planet at a given separation from the star, in K.
+        The formula used is:
+        ```python
+        a = sep_arcsec * distance_pc # in AU
+        Tirr = Teff_star * sqrt(R_star / (2 * a)) * (1 - albedo)**0.25 # R_star converted to AU
+        ```
+        Additionally, uncertainties are propagated.
+        
+        Parameters
+        ----------
+        sep_arcsec : float or np.ndarray
+            The separation from the star in arcseconds. Can be a single value or an array of values.
+        albedo : float, optional
+            The albedo of the planet. Default is 0.
+
+        Returns
+        ------- 
+        float or np.ndarray
+            The irradiation temperature in K, at given separations, and uncertainties.
+            
+        Notes
+        -----
+        Several assumptions are made in this calculation. Going from separation to actual distance
+        assumes a face-on circular orbit, or a planet at quadrature.
+        No geometrical factor is added to the planet, meaning that heat is effectively well redistributed
+        across the planet, and that there isn't a day-night contrast (which is invalid for Hot Jupiters for instance).
+        """
+        
+        # 1. Check input validity
+        if not (0 <= albedo < 1):
+            raise ValueError("albedo must be in the range [0, 1).")
+
+        sep_arcsec = np.asarray(sep_arcsec, dtype=float)
+        if np.any(sep_arcsec <= 0):
+            raise ValueError("sep_arcsec must be strictly positive.")
+
+        # 2. Get measurements
+        teff, teff_err1, teff_err2 = self.fill(self.Teff_k)
+        radius_solar, radius_err1_solar, radius_err2_solar = self.fill(self.radius_solar)
+        distance_pc, distance_err1_pc, distance_err2_pc = self.fill(self.distance_pc)
+
+        # 3. Convert distances
+        rstar_to_au = u.R_sun.to(u.AU) # a float
+        radius_au = radius_solar * rstar_to_au
+        radius_err1_au = radius_err1_solar * rstar_to_au
+        radius_err2_au = radius_err2_solar * rstar_to_au
+
+        sma_au = sep_arcsec * distance_pc
+        sma_err1_au = sep_arcsec * distance_err1_pc
+        sma_err2_au = sep_arcsec * distance_err2_pc
+        
+        # 4. Compute Tirr
+        def T(teff, R, a):
+            return teff * np.sqrt(R / (2*a)) * (1 - albedo)**0.25
+        
+        tirr = T(teff, radius_au, sma_au)
+        
+        # 5. Propagate uncertainties
+        tirr_err2 = T(teff + teff_err2, radius_au + radius_err1_au, sma_au + sma_err2_au) - tirr
+        tirr_err1 = T(teff + teff_err1, radius_au + radius_err2_au, sma_au + sma_err1_au) - tirr
+
+        # return as array
+        return np.stack([tirr, tirr_err1, tirr_err2], axis=-1)
+
 
 
 # -------------- #
@@ -694,6 +779,8 @@ class NPlanet(NSystem):
     @property
     def radius_rjup(self) -> np.ndarray:
         return self._get_best_row_measure_for("pl_radj")
+    
+    
     
     
 

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: oplanet
-Version: 1.0.0
+Version: 1.2.0
 Summary: Lightweight Python wrapper around the NASA Exoplanet Archive.
 Author: ProfesseurShadoko
 License: MIT License
@@ -53,25 +53,31 @@ Lightweight Python wrapper around the NASA Exoplanet Archive with practical help
 
 This package is built to make exoplanet metadata easier to use in notebooks and scripts by exposing a simple object API and automatically selecting the most reliable published values.
 
-`OSystem` is exported at package level, so you can import it directly with `from oplanet import OSystem`.
+`NSystem` is exported at package level, so you can import it directly with `from oplanet import NSystem`.
 
 ## What it is
 
 `oplanet` wraps data from:
 
-- NASA Exoplanet Archive (`ps` table)
+- NASA Exoplanet Archive
 - Simbad / Vizier utilities for star aliases, coordinates, and photometry
 
 For parameters with multiple entries in the archive, it chooses the best measurement by preferring rows with the smallest uncertainty bars (when available), with fallback to limits when no direct value exists.
 
-Measurement-return convention used by `OSystem`/`OStar`/`OPlanet` properties:
+Measurement-return convention used by `NSystem`/`NStar`/`NPlanet` properties:
 
 - Standard measurement: `[value, err_pos, err_neg]`
 - No direct measurement but limits exist: `[nan, limit_upper, limit_lower]`
 
 ## Installation
 
-### From GitHub (recommended)
+### From pip (recommended)
+
+```bash
+pip install oplanet
+```
+
+### From GitHub 
 
 ```bash
 pip install "git+https://github.com/ProfesseurShadoko/oplanet.git"
@@ -115,9 +121,9 @@ print(get_star_aliases("TOI 1478"))
 ### 2. Explore a system, its star, and its planets
 
 ```python
-from oplanet import OSystem
+from oplanet import NSystem
 
-system = OSystem("LHS 1140")
+system = NSystem("LHS 1140")
 
 print(system.star_name)
 print(system.n_planets)
@@ -134,7 +140,7 @@ print(system.b.orbital_period_yrs)
 ### 3. One-line import for common API
 
 ```python
-from oplanet import OSystem, parse_star_name, get_star_aliases, get_photometry_jy
+from oplanet import NSystem, parse_star_name, get_star_aliases, get_photometry_jy
 ```
 
 ### 4. Get stellar photometry at a wavelength
@@ -149,9 +155,9 @@ print(flux_jy)
 ### 5. Pretty-print helpers (`display` and `print_column`)
 
 ```python
-from oplanet import OSystem
+from oplanet import NSystem
 
-system = OSystem("LHS 1140")
+system = NSystem("LHS 1140")
 
 # Human-readable summary of system properties
 system.display()
@@ -179,7 +185,7 @@ When no direct value is available and only limits are present, the returned arra
 Examples:
 
 ```python
-system = OSystem("LHS 1140")
+system = NSystem("LHS 1140")
 
 age = system.star.age_myr
 distance = system.distance_pc
