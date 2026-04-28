@@ -571,6 +571,26 @@ class SFilter:
                 # this is expected as filter wont be found, but data will be loaded.
                 pass
 
+    @staticmethod
+    def is_cached(facility:str) -> bool:
+        """
+        Check if filters for a given facility are already cached.
+
+        Parameters
+        ----------
+        facility : str
+            Facility for which to check the filters (e.g. "JWST").
+        
+        Returns
+        -------
+        bool
+            True if filters for the specified facility are already cached, False otherwise.
+        """
+        cache = json.load(open(cache_path, "r"))
+        for filter_id, filter_info in cache.items():
+            if filter_info["facility"].lower() == facility.lower():
+                return True
+        return False
 
     
 if __name__ == "__main__":

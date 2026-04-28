@@ -37,13 +37,9 @@ Repository = "https://github.com/ProfesseurShadoko/oplanet"
 Issues = "https://github.com/ProfesseurShadoko/oplanet/issues"
 
 [tool.setuptools]
-include-package-data = true
+include-package-data = false
 
 [tool.setuptools.packages.find]
 include = ["oplanet*"]
 
-[tool.setuptools.package-data]
-oplanet = [
-  "data/*.csv",
-  "data/photometry/*.json",
-]
+

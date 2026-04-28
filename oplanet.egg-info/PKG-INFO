@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: oplanet
-Version: 1.2.0
+Version: 1.3.0
 Summary: Lightweight Python wrapper around the NASA Exoplanet Archive.
 Author: ProfesseurShadoko
 License: MIT License

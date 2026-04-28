@@ -15,10 +15,12 @@ from .star_utils import get_star_aliases, is_star_alias, get_star_name, parse_st
 # !-- SVO --! #
 # ----------- #
 
+from .sfilter import SFilter
+
 for facility in ["2MASS", "WISE", "GAIA", "JWST"]:
-    for instrument in ["ALL"]:
-        from .sfilter import SFilter
-        SFilter.get_filters(facility, instrument)
+    # check wether they are already loaded.
+    if not SFilter.is_cached(facility):
+        SFilter.download(facility)
 
 
 # ------------------------------ #

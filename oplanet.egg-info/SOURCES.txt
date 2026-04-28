@@ -4,6 +4,7 @@ pyproject.toml
 oplanet/__init__.py
 oplanet/data_loaders.py
 oplanet/nsystem.py
+oplanet/sfilter.py
 oplanet/star_utils.py
 oplanet.egg-info/PKG-INFO
 oplanet.egg-info/SOURCES.txt
@@ -11,4 +12,3 @@ oplanet.egg-info/dependency_links.txt
 oplanet.egg-info/requires.txt
 oplanet.egg-info/top_level.txt
 oplanet/data/2026-04-09_nasa-exoplanet-archive.csv
-oplanet/data/photometry/star_photometry_cache.json
