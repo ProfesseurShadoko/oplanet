@@ -122,13 +122,13 @@ class SFilter:
         elif len(matching_data) == 1:
             self._filer_info = cache[matching_data[0]]
             return
-        elif len(matching_data) == 0:
-            self._build_dictionnaries_from_svo()
-
-        if _recursion:
-            self.load(_recursion=False) # build saved to cache, now we can load again!
-        else:
-            raise ValueError(f"Filter not found in cache after building dictionnaries from SVO. This should not happen. Please check that the filter exists in the SVO database and that the specified criteria are correct (name={self._filter_name}, facility={self._facility}, instrument={self._instrument}).")
+        if not _recursion:
+            raise ValueError(f"Filter not found in SVO. Please check that the filter exists in the SVO database and that the specified criteria are correct (name={self._filter_name}, facility={self._facility}, instrument={self._instrument}).")
+            # this means we already downloaded what was necessary, but filter was not found
+        
+        self._build_dictionnaries_from_svo()
+        self.load(_recursion=False) # build saved to cache, now we can load again!
+        
 
 
     def _build_dictionnaries_from_svo(self):
@@ -137,7 +137,7 @@ class SFilter:
         and cache it.
         """
         # 1. Check that facility is specified (we need it to retrieve the filters from SVO)
-        assert self._facility is not None, "Facility must be specified to retrieve filter data from SVO database (e.g. 'JWST')"
+        assert self._facility is not None, "Facility must be specified to retrieve filter data from SVO database (e.g. 'JWST'). Provided filter name is not known yet."
 
         # 2. Retrieve filter IDs from SVO
         try:
@@ -463,10 +463,19 @@ class SFilter:
         plt.show()
 
     @staticmethod
-    def plot_all(filter_ids:list[str]) -> None:
+    def plot_all(filter_ids:list[str] | str) -> None:
         """
         Show a plot with the transmission curves of multiple filters.
+
+        Parameters
+        ----------
+        filter_ids : list of str or str
+            List of filter IDs (e.g. ["JWST/MIRI.F1500W", "JWST/MIRI.F1140C"]) or instrument name
+            (in which case all filters are plotted).
         """
+        if isinstance(filter_ids, str):
+            filters = SFilter.get_filters(filter_ids)
+            filter_ids = [filter.id for filter in filters]
         
         plt.figure(figsize=(15,6)) # very horizontal
         plt.title("Transmission curves of filters")
@@ -542,7 +551,25 @@ class SFilter:
         
         return [SFilter.from_id(filter_id) for filter_id in filters]
         
+    @staticmethod
+    def download(facility:str|list[str]) -> None:
+        """
+        Download all filters for a given facility and cache them. 
 
+        Parameters
+        ----------
+        facility : str or list of str
+            Facility (or facilities) for which to download the filters (e.g. "JWST"). All filters from this facility will be loaded and cached.
+            If a list of facilities is provided, filters for all specified facilities will be downloaded and cached.
+        """
+        if isinstance(facility, str):
+            facility = [facility]
+        for f in facility:
+            try:
+                SFilter(filter_name="NONE", facility=f)
+            except ValueError:
+                # this is expected as filter wont be found, but data will be loaded.
+                pass
 
 
     
@@ -553,6 +580,9 @@ if __name__ == "__main__":
     #filter.display()
     #filter = SFilter("F1140C") # should be already downlaoded
     #filter.display()
+    
 
     miri_filters = SFilter.get_filters("JWST", "MIRI")
     SFilter.plot_all([filter.id for filter in miri_filters])
+    SFilter.download(["2MASS", "WISE", "GAIA"])
+    SFilter.plot_all("WISE")

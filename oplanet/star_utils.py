@@ -6,15 +6,22 @@
 
 
 from oakley import *
+from .sfilter import SFilter
 
 try:
     from astroquery.simbad import Simbad
     from astroquery.vizier import Vizier
     Simbad.add_votable_fields('parallax')
     Vizier.ROW_LIMIT = -1
-    vizier_wise = Vizier(columns=["*"], catalog="II/328/allwise")
-    vizier_2mass = Vizier(columns=["*"], catalog="II/246/out")
-    vizier_gaia = Vizier(columns=["*"], catalog="I/350/gaiaedr3")
+
+    catalogs = [
+        "II/246/out",      # 2MASS
+        "II/328/allwise",  # WISE
+        "IV/38/tic"
+    ]
+
+    viz = Vizier(columns=["*"], catalog=catalogs)
+
 except:
     Message("Failed to import Simbad or Vizier. Check your internet connection.", "!")
 
@@ -24,6 +31,7 @@ from astropy.coordinates import SkyCoord
 import pandas as pd
 import numpy as np
 from scipy.interpolate import UnivariateSpline, interp1d
+import numbers
 
 from astropy.table import Table
 from urllib.parse import quote
@@ -34,7 +42,7 @@ import matplotlib.pyplot as plt
 # find the directory of the current python file
 import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
-cache_dir = os.path.join(current_dir, "data", "photometry")
+cache_dir = os.path.join(current_dir, "data")
 os.makedirs(cache_dir, exist_ok=True)
 import json
 
@@ -274,7 +282,9 @@ class StarInfoRetriever:
                     format="votable"
                 )
             except Exception as e:
-                Message("An exceptiuon occured while retrieving photometry. Trying different star names.", "!")
+                
+                with Message("An exceptiuon occured while retrieving photometry. Trying different star names.", "!"):
+                    Message.print(e)
                 aliases = StarInfoRetriever.get_star_aliases(self.star)
                 for alias in aliases:
                     try:
@@ -628,7 +638,7 @@ StarInfoRetriever.load_json()
 
 
 
-def get_photometry_jy(star:str, wavelength_um: float, show:bool = False) -> float:
+def get_photometry_jy(star:str, wavelength_or_filter: float|str, show:bool = False) -> float:
     """
     Convenience function to get the stellar flux (in Jy) at given wavelengths for a given star.
 
@@ -636,8 +646,10 @@ def get_photometry_jy(star:str, wavelength_um: float, show:bool = False) -> floa
     ----------
     star : str
         Name of the star.
-    wavelength : float
-        Wavelength(s) at which to get the stellar flux. In microns
+    wavelength_or_filter : float | str
+        Wavelength(s) at which to get the stellar flux. In meters.
+        If a string is provided (e.g. `F1500W` or `JWST/MIRI.F1500W`) is will
+        be used to load a `SFilter` object (see its documentation for more information).
     show : bool, optional
         Whether to show the photometry plot, by default False.
 
@@ -646,12 +658,25 @@ def get_photometry_jy(star:str, wavelength_um: float, show:bool = False) -> floa
     float
         Stellar flux at the given wavelengths. In Jy.
     """
+    raise NotImplementedError("Due to recent changes in the Vizier API, this function doesn't work anymore.")
 
     retriever = StarInfoRetriever(star)
     
-    wavelength = wavelength_um * u.um
-        
+    if isinstance(wavelength_or_filter, str):
+        sfilter = SFilter(wavelength_or_filter)
+        wavelength = sfilter.wl
+    elif isinstance(wavelength_or_filter, u.Quantity):
+        wavelength = wavelength_or_filter.to(u.m).value
+    
+    wavelength = wavelength * u.m
     flux_jy = retriever.get_photometry(wavelength)
+
+    if isinstance(wavelength_or_filter, str):
+        flux_jy = sfilter.photometry(
+            wavelength,
+            flux_jy,
+            flux_type="nu"
+        )
     
     if show:
         retriever.plot(show=False, close=False)
@@ -872,11 +897,8 @@ def get_star_mass(star_name, uncertainty=False) -> float | np.ndarray:
 
 
 
-if __name__ == "__main__":
-    # plot cached photometries
-    StarInfoRetriever.plot_cache()
         
-if __name__ == "__main_2_":
+if __name__ == "__main__":
     
     star = "LHS 1140"
     with Message(f"Retrieving photometry for star {cstr(star).green()}"):
