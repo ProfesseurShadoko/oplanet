@@ -5,3 +5,4 @@ astroquery
 astropy
 scipy
 matplotlib
+beautifulsoup4

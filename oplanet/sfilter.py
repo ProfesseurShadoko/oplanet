@@ -409,6 +409,17 @@ class SFilter:
 
         The type of detector is specified in the SVO database.
         """
+        frequency_conversion_kernel = const.c.value / wavelengths**2 if flux_type == "nu" else 1
+        detector_type_kernel = wavelengths if self.detector_type == "photon_counter" else 1
+        tr = np.interp(wavelengths, self.wl, self.tr, left=0, right=0)
+        photometry = np.trapezoid(
+            flux * tr * frequency_conversion_kernel * detector_type_kernel,
+            wavelengths
+        ) / np.trapezoid(
+            tr * frequency_conversion_kernel * detector_type_kernel,
+            wavelengths
+        )
+        return photometry
 
         if flux_type == "nu":
             # convert to flux per unit of wavelength

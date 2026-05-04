@@ -15,6 +15,7 @@ import pandas as pd
 import os
 from oakley import *
 from typing import Literal
+from bs4 import BeautifulSoup
 
 
 # ------------ #
@@ -28,7 +29,29 @@ class NSystem:
     Data is retrieved from the NASA Exoplanet Archive.
     """
 
-    def __init__(self, star_name: str):
+    _prefix = "sy" # defines what is outputtd by "reference"
+
+    preferences = {
+        "priority_references": [ # if a row matches the refernece specified here, automatically choose it over others. list of strings ('{author}_{date}')
+            
+        ],
+        "properties": {
+            "parallax_mas":1, # which parameters you intend to use, and how much you want them to be not nans
+            "distance_pc":1,
+            "ra":1,
+            "dec":1
+        },
+        "fallback": False # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
+    }
+
+    # ---------------------- #
+    # !-- Initialization --! #
+    # ---------------------- #
+
+    def __init__(
+        self,
+        star_name: str
+    ):
         """
         Initializes the NSystem object by loading the star and its planets from the database.
 
@@ -48,41 +71,55 @@ class NSystem:
         df_star_name : str
             The name of the star as it appears in the dataframe.
         """
-        with Message.mute():
-            self.star_name = parse_star_name(star_name)
-        self.star_aliases = get_star_aliases(self.star_name)
-        
-        # load the database
-        for alias in [
-            self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
-        ]:
-            self.df_star_name = alias
-            self.df = get_database("nasa")[
-                get_database("nasa")["hostname"] == alias
-            ].reset_index(drop=True).copy(deep=True)
-            if len(self.df) > 0:
-                break
-        else:
-            # retry by looking at columns hd_name,hip_name,tic_id,gaia_dr2_id,gaia_dr3_id
-            for helper_column, prefix in zip(["hd_name", "hip_name", "tic_id", "gaia_dr2_id", "gaia_dr3_id"], ["HD ", "HIP ", "TIC ", "Gaia DR2 ", "Gaia DR3 "]):
-                # find the correct alias for this helper column
-                matching_aliases = [
-                    alias for alias in [self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != self.star_name]]
-                    if alias.startswith(prefix)
-                ]
-                for alias in matching_aliases:
-                    self.df_star_name = alias
-                    self.df = get_database("nasa")[
-                        get_database("nasa")[helper_column] == alias
-                    ].reset_index(drop=True).copy(deep=True)
-                    if len(self.df) > 0:
-                        break
-                else:
-                    continue
-                break
+        assert isinstance(star_name, (str, pd.DataFrame)), f"Invalid type for star_name: {type(star_name)}. Must be a string or a pandas dataframe."
+
+        if isinstance(star_name, str):
+            with Message.mute():
+                self.star_name = parse_star_name(star_name)
+            self.star_aliases = get_star_aliases(self.star_name)
+            
+            # load the database
+            for alias in [
+                self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
+            ]:
+                self.df_star_name = alias
+                self.df = get_database("nasa")[
+                    get_database("nasa")["hostname"] == alias
+                ].reset_index(drop=True).copy(deep=True)
+                if len(self.df) > 0:
+                    break
             else:
-                raise ValueError(f"Star '{star_name}' or its aliases not found in the database.")
-    
+                # retry by looking at columns hd_name,hip_name,tic_id,gaia_dr2_id,gaia_dr3_id
+                for helper_column, prefix in zip(["hd_name", "hip_name", "tic_id", "gaia_dr2_id", "gaia_dr3_id"], ["HD ", "HIP ", "TIC ", "Gaia DR2 ", "Gaia DR3 "]):
+                    # find the correct alias for this helper column
+                    matching_aliases = [
+                        alias for alias in [self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != self.star_name]]
+                        if alias.startswith(prefix)
+                    ]
+                    for alias in matching_aliases:
+                        self.df_star_name = alias
+                        self.df = get_database("nasa")[
+                            get_database("nasa")[helper_column] == alias
+                        ].reset_index(drop=True).copy(deep=True)
+                        if len(self.df) > 0:
+                            break
+                    else:
+                        continue
+                    break
+                else:
+                    raise ValueError(f"Star '{star_name}' or its aliases not found in the database.")
+        else:
+            assert isinstance(star_name, pd.DataFrame), f"Invalid type for star_name: {type(star_name)}. Must be a string or a pandas dataframe."
+            self.df = star_name
+            self.star_name = self.df["hostname"].iloc[0]
+            self.df_star_name = self.star_name
+            self.star_aliases = get_star_aliases(self.star_name)
+
+        # copy df, reset index
+        self.df = self.df.reset_index(drop=True).copy(deep=True)
+        self._choose_row()
+
+
     def __repr__(self):
         return f"<{self.__class__.__name__}({self.name}, {len(self.df)} rows)>"
     
@@ -94,7 +131,8 @@ class NSystem:
         new_system.star_name = self.star_name
         new_system.star_aliases = self.star_aliases
         new_system.df_star_name = self.df_star_name
-        new_system.df = self.df.copy(deep=True)
+        new_system.df = self.df.reset_index(drop=True).copy(deep=True)
+        new_system._chosen_row = self._chosen_row
         return new_system
     
     @staticmethod
@@ -120,105 +158,270 @@ class NSystem:
     # ------------------------------ #
     # !-- Information Management --! #
     # ------------------------------ #
-    
-    def _get_column_prefix(self, prefix:str) -> str:
-        """
-        Returns the desired prefix. Translates the inputted prefix to one of "st_", "pl_" or "sy_".
-        """
-        prefix = prefix.lower().replace("_", "").replace("star", "st").replace("planet", "pl").replace("system", "sy")
-        assert prefix in ["st", "pl", "sy"], f"Invalid prefix '{prefix}'. Must be one of {self.info_types} or 'star', 'planet', 'system', or 'st', 'pl', 'sy'."
-        return prefix + "_"
 
-    
-    def restrict_to(self, prefix:str, keep_system_columns:bool = True) -> "NSystem":
-        """
-        Restricts the dataframe's columns. Three types of columns exist:
-        - star columns, with prefix "st_"
-        - planet columns, with prefix "pl_"
-        - system columns, with prefix "sy_"
-
-        Other types of columns do exist, and we will always keep them. When we restrict to a prefix, we drop columns starting with the other prefixes.
-
-        Parameters
-        ----------
-        prefix : str, optional
-            The prefix to restrict to. Can be "st_", "pl_" or "sy_", or "star", "planet", "system", or "st", "pl", "sy".
-        keep_system_columns : bool, optional
-            Whether to keep system columns when restricting to a different prefix. Default is True.
-        """
-        prefix = self._get_column_prefix(prefix)
-        other_prefixes = [p for p in ["st_", "pl_", "sy_"] if p != prefix]
-        
-        if keep_system_columns:
-            other_prefixes = [p for p in other_prefixes if p != "sy_"]
-            
-        columns_to_drop = [col for col in self.df.columns if any(col.startswith(other_prefix) for other_prefix in other_prefixes)]
-        new_df = self.df.drop(columns=columns_to_drop)
-        new_system = self.copy()
-        new_system.df = new_df
-        return new_system
-    
-    def head(self, n:int = 5) -> pd.DataFrame:
-        """
-        Returns the first n rows of the dataframe, with only the columns relative to the system (i.e. with prefix "sy_").
-        """
-        return self.restrict_to("system").df.head(n)
-    
     @property
-    def name(self) -> str:
-        return self.star_name
-    
-  
-    # --------------- #
-    # !-- Columns --! #
-    # --------------- #
-
-    def _get_columns_with_prefix(self, prefix:Literal["system","star","planet"] = None) -> list:
+    def columns(self) -> list:
         """
-        Returns the list of column names that start with the given prefix, without the suffixes.
+        A list of all columns in the dataframe, but with the different suffixes removed (err1, err2, str, lim).
+        """
+        suffixes = ["err1", "err2", "str", "lim"]
+        columns = set()
+        for column in self.df.columns:
+            for suffix in suffixes:
+                if column.endswith(suffix):
+                    columns.add(column[:-len(suffix)])
+                    break
+            else:
+                columns.add(column)
+        return sorted(columns)
+
+    def head(self, n:int = 5, which:Literal["system", "star", "planet"] = None) -> pd.DataFrame:
+        """
+        Returns the first n rows of the dataframe, with only the columns relative to the
+        specified type of information. If which is None, the head of the full dataframe
+        is simply returned.
 
         Parameters
         ----------
-        prefix : str, optional
-            The prefix to filter by. Can be "system", "star" or "planet". If None, all columns are returned (but still without suffixes).
+        n : int, optional
+            The number of rows to return. Default is 5.
+        which : str, optional
+            The type of information to return. Can be "system" for system properties, "star" for star properties, "planet" for planet properties.
+            Default is None, which returns the full dataframe.
         """
-        if prefix is None:
-            prefix = ""
+        if which is None:
+            return self.df.head(n)
+        elif which == "system":
+            columns = [column for column in self.df.columns if column.startswith("sy_")]
+        elif which == "star":
+            columns = [column for column in self.df.columns if column.startswith("st_")]
+        elif which == "planet":
+            columns = [column for column in self.df.columns if column.startswith("pl_")]
         else:
-            prefix = self._get_column_prefix(prefix)
-        columns = self.df.columns
-        prefix_columns = set()
-        for column in columns:
-            if column.startswith(prefix):
-                # remove the suffixes
-                column = column.replace("err1", "").replace("err2", "").replace("str", "").replace("lim", "")
-                prefix_columns.add(column)
-        return [col for col in columns if col in prefix_columns] # keep the order
+            raise ValueError(f"Invalid value for 'which': {which}. Must be one of None, 'system', 'star', 'planet'.")
+        return self.df[columns].head(n)
     
-    @property
-    def _star_columns(self) -> list:
-        """
-        The list of column names relative to the properties of the star.
-        Columns are grouped together if they only differ by theit suffix.
-        """
-        return self._get_columns_with_prefix(prefix="st_")
-
-    @property
-    def _planet_columns(self) -> list:
-        """
-        The list of column names relative to the properties of the planets.
-        Columns are grouped together if they only differ by theit suffix.
-        """
-        return self._get_columns_with_prefix(prefix="pl_")
-
-    @property
-    def _system_columns(self) -> list:
-        """
-        The list of column names relative to the properties of the system.
-        Columns are grouped together if they only differ by theit suffix.
-        """
-        return self._get_columns_with_prefix(prefix="sy_")
     
+    def set_preferences(
+        self,
+        priority_references: list[str] = None,
+        properties: dict[str, int] = None,
+        fallback: bool = None
+    ):
+        """
+        Sets the preferences for the system. These preferences are used to choose the row
+        from which the measurments are taken, when there are multiple rows for the same system.
+
+        Parameters
+        ----------
+        priority_references : list of str, optional
+            A list of references in the format "Author_Date". If a row matches one of these references, it will be automatically chosen over the others. Default is None (don't change).
+        properties : dict of str to int, optional
+            A dictionary mapping property names to look for to a weight to apply. Default is None (don't change).
+        fallback : bool, optional
+            Whether to use a fallback strategy when, in a given row, a value is missing (looks for a replacement in other rows). Default is None (don't change).
+
+        Notes
+        -----
+        The preferences are defined for the whole class. This means that if you change the preferences
+        for one system, it will change for all other systems as well.
+
+        If preferences are updated, the data from the present object will be updated automatically.
+        For other objects, run `obj._choose_row()` to update the data based on the new preferences.
+        
+        """
+        if priority_references is not None:
+            # check that all references are in the format "Author_Date"
+            for ref in priority_references:
+                if not isinstance(ref, str) or "_" not in ref:
+                    raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date'.")
+                # check that the date part is an integer, and the rest is string
+                author, date = ref.rsplit("_", 1)
+                if not date.isdigit():
+                    raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date', where Author is a string and Date is an integer.")
+            self.__class__.preferences["priority_references"] = priority_references
+        if properties is not None:
+            # check that it corresponds to property names and integer values
+            def safe_get(obj, path:str) -> bool:
+                try:
+                    for attr in path.split("."):
+                        obj = getattr(obj, attr)
+                    assert isinstance(obj, (int, float, list, np.ndarray, str))
+                    return True
+                except:
+                    return False
+                
+            for prop, value in properties.items():
+                assert isinstance(prop, str), f"Invalid property name: '{prop}'. Must be a string."
+                assert isinstance(value, int), f"Invalid property value: '{value}' for property '{prop}'. Must be an integer."
+                assert safe_get(self, prop), f"Invalid property name: '{prop}'. Must be a valid property of the NSystem or its subclasses."
+
+            self.__class__.preferences["properties"] = properties
+
+        if fallback is not None:
+            assert isinstance(fallback, bool), f"Invalid value for fallback: '{fallback}'. Must be a boolean."
+            self.__class__.preferences["fallback"] = fallback
+
+        if priority_references is not None or properties is not None or fallback is not None:
+            self._choose_row() # choose again, based on the updated preferences
+    
+    def _choose_row(self) -> None:
+        """
+        Among all rows of the dataframe, chooses the one to use for the system properties.
+        """
+        # disable fallback when looking for best rows, otherwise values will be filled by default
+        fallback = self.__class__.preferences["fallback"]
+        self.__class__.preferences["fallback"] = False
+        def safe_get(obj, path:str) -> bool:
+            try:
+                for attr in path.split("."):
+                    obj = getattr(obj, attr)
+                assert isinstance(obj, (int, float, list, np.ndarray, str))
+                return obj
+            except:
+                return np.nan
+            
+        def score_row(row:int) -> tuple:
+            self._chosen_row = row
+
+            reference_matching = 0
+            existence = 0
+            error_existence = 0
+            error_precision = 0
+
+            for priority_reference in self.__class__.preferences["priority_references"]:
+                # get date as integer
+                date_str = priority_reference.rsplit("_", 1)[-1].strip()
+                date = int(date_str) if date_str.isdigit() else None
+                # get author name lowercase without spaces, or -, or _
+                author = priority_reference.rsplit("_", 1)[0].lower().replace(" ", "").replace("-", "").replace("_", "")
+                row_date = self.reference_date
+                row_author = self.reference_author.lower().replace(" ", "").replace("-", "").replace("_", "") if self.reference_author is not None else ""
+                if row_author in author and (date is None or row_date == date):
+                    reference_matching += 1
+
+            for prop, weight in self.__class__.preferences["properties"].items():
+                data = safe_get(self, prop)
+
+                # 1. Existence
+                if data is None:
+                    continue
+                if isinstance(data, str): # no errorbars, just add to existence
+                    if data.strip() == "":
+                        continue
+                    existence += weight
+                    continue # no errorbars
+                if isinstance(data, (int, float)):
+                    existence += weight
+                    continue # no errorbars
+                if isinstance(data, (list, np.ndarray)):
+                    # length should be 3, otherwise ignore
+                    if len(data) != 3:
+                        continue
+                    value, err1, err2 = data
+                    if not np.isnan(value):
+                        existence += weight
+                    if not np.isnan(err1):
+                        error_existence += weight
+                    if not np.isnan(err2):
+                        error_existence += weight
+                    if not np.isnan(err1) and not np.isnan(err2):
+                        relative_error_range = (np.abs(err1) + np.abs(err2)) / np.abs(value) if value != 0 else np.inf
+                        error_precision += weight / relative_error_range if relative_error_range != 0 else 0
+            return (reference_matching, existence, error_existence, error_precision)
+
+        self._chosen_row = max(range(len(self.df)), key=score_row)
+        # reset fallback to its original value
+        self.__class__.preferences["fallback"] = fallback
+
+
+    def _get(self, column:str, _allow_fallback:bool = True) -> np.ndarray:
+        """
+        Returns the value for a given column at the chosen row.
+        """
+
+        # 1. Locate the columns
+        column_err1 = column + "err1"
+        column_err2 = column + "err2"
+        column_lim = column + "lim"
+
+        # 2. Get values
+        if not column in self.df.columns:
+            raise ValueError(f"Column '{column}' not found in the dataframe.")
+        value = self.df[column].iloc[self._chosen_row]
+        err1 = self.df[column_err1].iloc[self._chosen_row] if column_err1 in self.df.columns else np.nan
+        err2 = self.df[column_err2].iloc[self._chosen_row] if column_err2 in self.df.columns else np.nan
+        
+        # 3. Check for limits
+        if column_lim in self.df.columns:
+            lim = self.df[column_lim].iloc[self._chosen_row]
+            if lim==-1:
+                # lower limit
+                value, err2 = np.nan, value
+            elif lim==1:
+                # upper limit
+                value, err1 = np.nan, value
+
+
+        # 4. Check for fallback if necessary
+        if np.isnan(value):
+            if self.__class__.preferences["fallback"] and _allow_fallback: # check wether any row has a value for this column. pick the one with lowest errors
+                original_chosen_row = self._chosen_row
+                best_value = np.nan
+                best_err1 = np.nan
+                best_err2 = np.nan
+
+                for i in range(len(self.df)):
+                    self._chosen_row = i
+                    value, err1, err2 = self._get(column, _allow_fallback=False) # avoid infinite recursion
+                    
+                    # a. If the values of the other row are nans, skip
+                    if np.isnan(err1) and np.isnan(err2) and np.isnan(value):
+                        continue
+                    # b. If already valid value, skip
+                    if np.isnan(value) and not np.isnan(best_value):
+                        continue
+                    # c. If new valid value, replace
+                    if not np.isnan(value) and np.isnan(best_value):
+                        best_value, best_err1, best_err2 = value, err1, err2
+                        continue
+
+                    # here, both value and best_value are either both valid or both nans
+                    # d. Compare errors
+                    if not np.isnan(value) and not np.isnan(best_value):
+                        # check for better errors
+                        if np.isnan(best_err1) or np.isnan(best_err2):
+                            if not np.isnan(err1) and not np.isnan(err2):
+                                best_value, best_err1, best_err2 = value, err1, err2
+                                continue
+                            else:
+                                continue
+                        else:
+                            if np.isnan(err1) or np.isnan(err2):
+                                continue
+                            # here, neither best_err1 nor best_err2 are nans
+                            # pick the one with the lowest erros
+                            error_range = np.abs(err1) + np.abs(err2)
+                            best_error_range = np.abs(best_err1) + np.abs(best_err2)
+                            if error_range < best_error_range:
+                                best_value, best_err1, best_err2 = value, err1, err2
+                                continue
+                    else:
+                        # here, both value and best_value are both nans
+                        # e. Check for limits (upper or lower)
+                        if not np.isnan(err1):
+                            if np.isnan(best_err1) or err1 < best_err1:
+                                best_err1 = err1
+                        if not np.isnan(err2):
+                            if np.isnan(best_err2) or err2 < best_err2:
+                                best_err2 = err2
+                
+                value, err1, err2 = best_value, best_err1, best_err2
+                self._chosen_row = original_chosen_row # reset to original chosen row
+
+        return np.array([value, err1, err2])
+    
+
 
     # ------------------ #
     # !-- Properties --! #
@@ -235,83 +438,14 @@ class NSystem:
                 column + suffix for suffix in ["err1", "err2", "lim"] if column + suffix in self.df.columns
             ]
         ]
-        Message(f"Column {cstr(column):y} data:").print(self.df[columns2print])
+        Message(f"Column {cstr(column):y} data:").print(self.df[columns2print].columns)
 
-    def _get_best_row_measure_for(self, column:str, _limit:Literal[-1, 0, 1] = 0) -> np.ndarray:
-        """
-        For a given column, returns the row with the best measurement for that column,
-        that is the measurement with lowest uncertainties (err1 and err2) and with a value (not NaN).
-        If err1 and err2 are both NaN, the row with the lowest lim value is returned.
-
-        We impose lim = 0, because lim=1 means that the value is an upper limit, not a real measurement.
-        When no value availalbe, we look for upper and lower limit and return [np.nan, upper_limit, lower_limit].
-
-        Returns a tuple of (best_value, err1, err2) with None if the value is nan.
-        """
-        assert column in self.df.columns, f"Column '{column}' not found in the dataframe. Might be a consequence of the restriction of the dataframe to a specific prefix. For instance, `distance_pc` and `parallax_mas` are system properties, so they will not be available in `self.star` or `self.planets`."
-
-        # 1. Loop over rows of the dataframe, and keep the best row and update it
-        best_row_value = np.nan
-        best_row_err1 = np.nan
-        best_row_err2 = np.nan
-
-        for i in range(len(self.df)):
-            row = self.df.iloc[i]
-            row_value = np.nan
-            row_err1 = np.nan
-            row_err2 = np.nan
-
-            # 1. Check for valid value
-            if pd.isna(row[column]):
-                continue
-            # check that float or int or idk, but number
-            #if not isinstance(row[column], (float, int)):
-            if not np.isscalar(row[column]):
-                raise ValueError(f"Column '{column}' contains non-numeric values, which is not supported.")
-            row_value = row[column]
-            
-            # 2. Check for valid lim value
-            if column + "lim" in self.df.columns:
-                if row[column + "lim"] != _limit and not pd.isna(row[column + "lim"]):
-                    continue
-            
-            # 3. Check for valid err1 and err2 values
-            if column + "err1" in self.df.columns and column + "err2" in self.df.columns:
-                row_err1 = row[column + "err1"]
-                row_err2 = row[column + "err2"]
-            
-            # 4. Update best row if necessary
-            if np.isnan(best_row_value):
-                best_row_value = row_value
-                best_row_err1 = row_err1
-                best_row_err2 = row_err2
-            else:
-                if np.isnan(row_err1):
-                    # do not update, we don't have a valid error for this row
-                    continue
-                elif np.isnan(best_row_err1):
-                    # update, previous value doesn't have a valid error, but this one does
-                    best_row_value = row_value
-                    best_row_err1 = row_err1
-                    best_row_err2 = row_err2
-                else:
-                    if np.abs(row_err1) + np.abs(row_err2) < np.abs(best_row_err1) + np.abs(best_row_err2):
-                        best_row_value = row_value
-                        best_row_err1 = row_err1
-                        best_row_err2 = row_err2
-        
-        if np.isnan(best_row_value):
-            # retry with limit = 1 and then with limit = -1
-            if _limit == 0:
-                # check if there is an upper limit and lower limit
-                out_upper = self._get_best_row_measure_for(column, _limit=1)
-                out_lower = self._get_best_row_measure_for(column, _limit=-1)
-                return np.array([np.nan, out_upper[0], out_lower[0]])
-        
-        return np.array([best_row_value, best_row_err1, best_row_err2])
     
+    def display(self, row:int = None):
+        if row is not None:
+            original_chosen_row = self._chosen_row
+            self._chosen_row = row % len(self.df)
 
-    def display(self):
         Message("Looking at system properties").list({
             "Star name": self.star_name,
             "Number of planets": self.n_planets,
@@ -320,7 +454,13 @@ class NSystem:
             "Planets": self.planets,
             "Distance (pc)": self.distance_pc,
             "Parallax (mas)": self.parallax_mas,
+            "Coordinates (RA, Dec)": f"({self.ra[0]:.4f}, {self.dec[0]:.4f})",
+            "Reference": self.reference,
+            "Row": f"{self._chosen_row}/{len(self.df)-1}"
         })
+
+        if row is not None:
+            self._chosen_row = original_chosen_row # reset to original chosen row
         
         
     # ------------------- #
@@ -330,7 +470,7 @@ class NSystem:
     @staticmethod
     def fill(values:np.ndarray, rel_uncertainty:float = 0.1, default_value:float = None) -> np.ndarray:
         """
-        Handles values and uncertainties when they are missing. If only the value is not None, uncertaintis
+        Handles values and uncertainties when they are missing. If only the value is not None, uncertainties
         are filled with the given relative uncertainty.
         
         Parameters
@@ -383,22 +523,165 @@ class NSystem:
             val = val_lower + rel_uncertainty * val_lower
             return np.array([val, val_lower * rel_uncertainty, -val_lower * rel_uncertainty])
             
-        
-    
-    
 
-    # -------------- #
-    # !-- System --! #
-    # -------------- #
+
+    # ------------------ #
+    # !-- References --! #
+    # ------------------ #
+
+    @staticmethod
+    def _parse_reference(ref:str) -> str:
+        """
+        Takes the value of a reference column as provided by the Exoplanet Archive
+        (format <a>...</a>) and returns a dictionary:
+        ```
+        {
+            "date": ...,
+            "author": ...,
+            "href": ...
+        }
+        ```
+        """
+        # 1. Parse the reference string to BeautifulSoup object
+        soup = BeautifulSoup(ref, "html.parser").find("a")
+
+        # 2. Extract date from the refstr
+        ref_str = soup["refstr"]
+        last_part = ref_str.split("_")[-1].strip()
+        if last_part and last_part.isdigit():
+            date = int(last_part)
+        else:
+            date = None # this happens when source is a catalog
+        
+        # 3. Extract author from the refstr
+        date_as_str = str(date) if date is not None else "NO_DATE_:("
+        author = ref_str.replace(date_as_str, "")
+        # split and join around "_"
+        author = " ".join([
+            part for part in author.split("_") if part != ""
+        ])
+        # remove ET AL, AMP, AND
+        author = author.split(" ET AL")[0].split(" AMP ")[0].split(" AND ")[0].split(" & ")[0].strip()
+
+        # 4. Handle name anomalies
+        if " " in author:
+            # assume two names are displayed --> fall back on the text of the link, which might be in a better format
+            author:str = soup.text.strip()
+            # replace date if it is in the text
+            if date is not None and str(date) in author:
+                author = author.replace(str(date), "").strip()
+                author = author.upper() # match format of ref str
+            # remove ET AL, AMP, AND again
+            author = author.split(" ET AL ")[0].split(" ET. AL.")[0].split(" AMP ")[0].split(" AND ")[0].split(" & ")[0].strip()
+        
+        # 5. Extract href and text
+        href = soup["href"]
+        text = soup.text.strip()
+
+        # 6. Return the result as a dictionary
+        return {
+            "date": date, # int
+            "author": author, # str
+            "href": href, # str
+            "reference": text # str
+        }
+    
+    def get_reference(self) -> dict:
+        """
+        Returns the reference for the returned properties, as a dictionary:
+
+        ```python
+        {
+            "date": ..., # (int)
+            "author": ..., # (str)
+            "href": ..., # url (str)
+            "reference": ... # written as in Exoplanet Archive (str) 
+        }
+
+        They can also be accessed separately with the properties `reference_date`, `reference_author` and `reference_url`.
+        """
+        reference = self.df[f"{self._prefix}_refname"].iloc[self._chosen_row]
+        return self._parse_reference(reference)
+    
+    
+    # ------------------ #
+    # !-- Properties --! #
+    # ------------------ #
 
     @property
-    def system(self) -> "NSystem":
+    def name(self) -> str:
+        return self.star_name
+    
+    @property
+    def distance_pc(self) -> np.ndarray:
         """
-        Returns a new NSystem object with only the columns relative to the system.
+        Returns the distance of the star in pc.
         """
-        out = self.copy()
-        out = out.restrict_to("system")
+        out = self._get("sy_dist")
         return out
+    
+    @property
+    def parallax_mas(self) -> np.ndarray:
+        """
+        Returns the parallax of the star in mas.
+        """
+        out = self._get("sy_plx")
+        return out
+    
+    @property
+    def ra(self):
+        """
+        Returns the right ascension of the star in degrees.
+        """
+        return self._get("ra")
+    
+    @property
+    def dec(self):
+        """
+        Returns the declination of the star in degrees.
+        """
+        return self._get("dec")
+    
+    @property
+    def aliases(self) -> list:
+        """
+        Returns the list of aliases of the star, provided by Simbad.
+        """
+        if not hasattr(self, "_aliases"):
+            self._aliases = get_star_aliases(self.star_name)
+        return self._aliases
+    
+    @property
+    def reference_date(self) -> int:
+        """
+        Returns the date of the reference for the measurments, as an integer year.
+        Might return None if the reference is a catalog for instance.
+        """
+        return self.get_reference()["date"]
+    
+    @property
+    def reference_author(self) -> str:
+        """
+        Returns the author of the reference for the properties, as a string.
+        """
+        author = self.get_reference()["author"]
+        return author.title() if author is not None else None
+    
+    @property
+    def reference_url(self) -> str:
+        """
+        Returns the URL of the reference for the measurments, as a string.
+        """
+        return self.get_reference()["href"]
+    
+    @property
+    def reference(self) -> str:
+        """
+        Returns the reference for the measurments, as a string usually in the format "Author et. al. (Date)".
+        """
+        return self.get_reference()["reference"]
+
+
 
     # ------------ #
     # !-- Star --! #
@@ -407,10 +690,9 @@ class NSystem:
     @property
     def star(self) -> "NStar":
         """
-        Returns a new NSystem object with only the columns relative to the star.
+        Returns a new NSystem object with properties relative to the star.
         """
         out = self.copy()
-        out = out.restrict_to("star")
         return NStar(out)
 
     @property
@@ -427,30 +709,8 @@ class NSystem:
         """
         return self.star
     
-    @property
-    def distance_pc(self) -> np.ndarray:
-        """
-        Returns the distance of the star in pc.
-        """
-        out = self._get_best_row_measure_for("sy_dist")
-        return out
     
-    @property
-    def parallax_mas(self) -> np.ndarray:
-        """
-        Returns the parallax of the star in mas.
-        """
-        out = self._get_best_row_measure_for("sy_plx")
-        return out
     
-    @property
-    def aliases(self) -> list:
-        """
-        Returns the list of aliases of the star, provided by Simbad.
-        """
-        if not hasattr(self, "_aliases"):
-            self._aliases = get_star_aliases(self.star_name)
-        return self._aliases
     
 
 
@@ -481,7 +741,6 @@ class NSystem:
         Returns a new NSystem object with only the columns relative to the planet with the given letter.
         """
         out = self.copy()
-        out = out.restrict_to("planet")
         # match pl_letter
         out.df = out.df[out.df["pl_letter"] == planet_letter].reset_index(drop=True)
         if len(out.df) == 0:
@@ -535,18 +794,35 @@ class NStar(NSystem):
     """
     Basically an alias for NSystem, but with additional properties to handle data for a single star.
     """
+    _prefix = "st"
+
+    preferences = {
+        "priority_references": [ # if a row matches the refernece specified here, automatically choose it over others. list of strings ('{author}_{date}')
+            
+        ],
+        "properties": {
+            "age_myr":1, # which parameters you intend to use, and how much you want them to be not nans
+            "mass_solar":1,
+            "radius_solar":1,
+            "metallicity_dex":1,
+            "system.distance_pc":1
+        },
+        "fallback": True # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
+    }
+
     def __init__(self, osystem: NSystem):
         self.df = osystem.df
         self.star_name = osystem.star_name
         self.star_aliases = osystem.star_aliases
         self.df_star_name = osystem.df_star_name
+        self._choose_row()
 
     @property
     def age_myr(self) -> np.ndarray:
         """
         Returns the age of the star in Myr.
         """
-        out = self._get_best_row_measure_for("st_age")
+        out = self._get("st_age")
         conversion_factor = u.Gyr.to(u.Myr)
         return out * conversion_factor
     
@@ -555,7 +831,7 @@ class NStar(NSystem):
         """
         Returns the mass of the star in solar masses.
         """
-        out = self._get_best_row_measure_for("st_mass")
+        out = self._get("st_mass")
         return out
     
     @property
@@ -563,7 +839,7 @@ class NStar(NSystem):
         """
         Returns the radius of the star in solar radii.
         """
-        out = self._get_best_row_measure_for("st_rad")
+        out = self._get("st_rad")
         return out
     
     @property
@@ -571,7 +847,7 @@ class NStar(NSystem):
         """
         Returns the luminosity of the star in solar luminosities.
         """
-        out = self._get_best_row_measure_for("st_lum")
+        out = self._get("st_lum")
         return out
     
     @property
@@ -579,7 +855,7 @@ class NStar(NSystem):
         """
         Returns the effective temperature of the star in K.
         """
-        out = self._get_best_row_measure_for("st_teff")
+        out = self._get("st_teff")
         return out
     
     @property
@@ -587,7 +863,7 @@ class NStar(NSystem):
         """
         Returns the metallicity of the star in dex.
         """
-        out = self._get_best_row_measure_for("st_met")
+        out = self._get("st_met")
         return out
     
     @property
@@ -598,7 +874,10 @@ class NStar(NSystem):
         return self.df["st_spectype"].iloc[0]
 
     
-    def display(self):
+    def display(self, row:int = None):
+        if row is not None:
+            original_chosen_row = self._chosen_row
+            self._chosen_row = row % len(self.df)
         Message(f"Star {cstr(self.star_name):y} properties:").list({
             "Age (Myr)": self.age_myr,
             "Mass (solar masses)": self.mass_solar,
@@ -608,8 +887,27 @@ class NStar(NSystem):
             "Irradiation temparature at 1 arcsec (K)": self.Tirr_k(1),
             "Metallicity (dex)": self.metallicity_dex,
             "Spectral type": self.spectral_type,
-            
+            "Reference": self.reference,
+            "Row": f"{self._chosen_row}/{len(self.df)-1}"
         })
+        if row is not None:
+            self._chosen_row = original_chosen_row # reset to original chosen row
+    
+    # ------------------- #
+    # !-- System Data --! #
+    # ------------------- #
+
+    @property
+    def system(self) -> NSystem:
+        """
+        Return a `NSystem` object containing the properties of the system, 
+        for the same row as the planet properties. This might be usefull is the 
+        properties of the planet are derived using specific properties of the system.
+        """
+        out = self.copy()
+        # keep only the chosen row
+        out.df = self.df.iloc[[self._chosen_row]].reset_index(drop=True).copy(deep=True)
+        return NSystem(out)
     
     # ------------------------------- #
     # !-- Irradiation Temperature --! #
@@ -691,11 +989,35 @@ class NPlanet(NSystem):
     """
     Basically an alias for NSystem, but with additional properties to handle data for a single planet.
     """
+
+    _prefix = "pl"
+
+    preferences = {
+        "priority_references": [ # if a row matches the refernece specified here, automatically choose it over others. list of strings ('{author}_{date}')
+            
+        ],
+        "properties": {
+            "star.age_myr":1, # which parameters you intend to use, and how much you want them to be not nans
+            "system.distance_pc":1,
+            "orbital_period_yrs":2,
+            "mass_sini_mjup":1,
+            "mass_mjup":3,
+            "sma_au":2,
+            "eccentricity":1,
+            "inclination_deg":1,
+            "arg_periastron_deg":1,
+            "time_periastron_jd":1,
+            "rv_amplitude_ms":1,
+        },
+        "fallback": True # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
+    }
+
     def __init__(self, osystem: NSystem):
         self.df = osystem.df
         self.star_name = osystem.star_name
         self.star_aliases = osystem.star_aliases
         self.df_star_name = osystem.df_star_name
+        self._choose_row()
 
     
     # -------------------- #
@@ -740,47 +1062,74 @@ class NPlanet(NSystem):
         """
         Returns the orbital period of the planet in years.
         """
-        out = self._get_best_row_measure_for("pl_orbper")
+        out = self._get("pl_orbper")
         conversion_factor = u.day.to(u.yr)
         return out * conversion_factor
 
     @property
     def mass_sini_mjup(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_msinij")
+        return self._get("pl_msinij")
     
     @property
     def mass_mjup(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_bmassj")
+        return self._get("pl_bmassj")
     
     @property
     def sma_au(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_orbsmax")
+        return self._get("pl_orbsmax")
     
     @property
     def eccentricity(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_orbeccen")
+        return self._get("pl_orbeccen")
     
     @property
     def inclination_deg(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_orbincl")
+        return self._get("pl_orbincl")
     
     @property
     def arg_periastron_deg(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_orblper")
+        return self._get("pl_orblper")
     
     @property
     def time_periastron_jd(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_orbtper")
+        return self._get("pl_orbtper")
     
     @property
     def rv_amplitude_ms(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_rvamp")
+        return self._get("pl_rvamp")
     
     @property
     def radius_rjup(self) -> np.ndarray:
-        return self._get_best_row_measure_for("pl_radj")
+        return self._get("pl_radj")
     
-    
+
+    # ----------------- #
+    # !-- Star data --! #
+    # ----------------- #
+
+    @property
+    def star(self) -> NStar:
+        """
+        Return a `NStar` object containing the properties of the star, 
+        for the same row as the planet properties. This might be usefull is the 
+        properties of the planet are derived using specific properties of the star.
+        """
+        out = self.copy()
+        # keep only the chosen row
+        out.df = self.df.iloc[[self._chosen_row]].reset_index(drop=True).copy(deep=True)
+        return NStar(out)
+
+    @property
+    def system(self) -> NSystem:
+        """
+        Return a `NSystem` object containing the properties of the system, 
+        for the same row as the planet properties. This might be usefull is the 
+        properties of the planet are derived using specific properties of the system.
+        """
+        out = self.copy()
+        # keep only the chosen row
+        out.df = self.df.iloc[[self._chosen_row]].reset_index(drop=True).copy(deep=True)
+        return NSystem(out)
     
     
 
@@ -788,7 +1137,13 @@ class NPlanet(NSystem):
     # !-- Diplsay --! #
     # --------------- #
 
-    def display(self):
+    def display(self, row:int = None):
+        if row is not None:
+            original_chosen_row = self._chosen_row
+            self._chosen_row = row % len(self.df)
+            # disable fallback to avoid picking values from other rows
+            fallback = self.__class__.preferences["fallback"]
+            self.__class__.preferences["fallback"] = False
         Message(f"Planet {cstr(self.name):y} properties:").list({
             "Letter": self.letter,
             "Discovery year": self.discovery_year,
@@ -803,47 +1158,19 @@ class NPlanet(NSystem):
             "Time of periastron (JD)": self.time_periastron_jd,
             "RV amplitude (m/s)": self.rv_amplitude_ms,
             "Radius (Rjup)": self.radius_rjup,
+            "Reference": self.reference,
+            "Row": f"{self._chosen_row}/{len(self.df)-1}"
         })
-
+        if row is not None:
+            self._chosen_row = original_chosen_row # reset to original chosen row
+            self.__class__.preferences["fallback"] = fallback # reset fallback to its original value
 
 
 
 if __name__ == "__main__":
-
-    # --------------------- #
-    # !-- Instantiation --! #
-    # --------------------- #
-    
-    # 1. Load the data
     system = NSystem("LHS 1140")
 
-    Message("Looking at system properties").list({
-        "Star name": system.star_name,
-        "Number of planets": system.n_planets,
-        "Dataframe shape": system.df.shape,
-        "Star": system.star,
-        "Planets": system.planets,
-        "Planet mass": system.b._get_best_row_measure_for("pl_bmassj"),
-        "Distance (pc)": system.distance_pc,
-        "Parallax (mas)": system.parallax_mas,
-    })
+    system.df.to_csv("lhs1140.csv", index=False)
 
-    
-    # --------------- #
-    # !-- Planets --! #
-    # --------------- #
-
-    system.b.display()
-
-    # ------------ #
-    # !-- Star --! #
-    # ------------ #
-
-    system.star.display()
-    
-    # Autimatically handling values
-    system = NSystem("LHS 1140")
-    Message("LHS 1140 age is only a lower value, but we can fill it this way").list({
-        "Age output:": system.star.age_myr,
-        "Filled age output:": NSystem.fill(system.star.age_myr),
-    })
+    with Message("Planet Reference"):
+        system.print_column("pl_refname")
