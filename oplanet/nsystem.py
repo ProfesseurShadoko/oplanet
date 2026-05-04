@@ -7,6 +7,7 @@
 import oakley
 from .star_utils import get_star_aliases, parse_star_name,  get_star_name
 from .data_loaders import get_database, refresh_data
+from .oconfig import oplanet_temp_config
 
 import numpy as np
 import astropy.units as u
@@ -30,19 +31,8 @@ class NSystem:
     """
 
     _prefix = "sy" # defines what is outputtd by "reference"
+    _config_key = "system"
 
-    preferences = {
-        "priority_references": [ # if a row matches the refernece specified here, automatically choose it over others. list of strings ('{author}_{date}')
-            
-        ],
-        "properties": {
-            "parallax_mas":1, # which parameters you intend to use, and how much you want them to be not nans
-            "distance_pc":1,
-            "ra":1,
-            "dec":1
-        },
-        "fallback": False # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
-    }
 
     # ---------------------- #
     # !-- Initialization --! #
@@ -202,9 +192,9 @@ class NSystem:
         return self.df[columns].head(n)
     
     
-    def set_preferences(
+    def set_config(
         self,
-        priority_references: list[str] = None,
+        references: list[str] = None,
         properties: dict[str, int] = None,
         fallback: bool = None
     ):
@@ -214,7 +204,7 @@ class NSystem:
 
         Parameters
         ----------
-        priority_references : list of str, optional
+        references : list of str, optional
             A list of references in the format "Author_Date". If a row matches one of these references, it will be automatically chosen over the others. Default is None (don't change).
         properties : dict of str to int, optional
             A dictionary mapping property names to look for to a weight to apply. Default is None (don't change).
@@ -230,16 +220,16 @@ class NSystem:
         For other objects, run `obj._choose_row()` to update the data based on the new preferences.
         
         """
-        if priority_references is not None:
+        if references is not None:
             # check that all references are in the format "Author_Date"
-            for ref in priority_references:
+            for ref in references:
                 if not isinstance(ref, str) or "_" not in ref:
                     raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date'.")
                 # check that the date part is an integer, and the rest is string
                 author, date = ref.rsplit("_", 1)
                 if not date.isdigit():
                     raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date', where Author is a string and Date is an integer.")
-            self.__class__.preferences["priority_references"] = priority_references
+            oplanet_temp_config[self._config_key]["references"] = references
         if properties is not None:
             # check that it corresponds to property names and integer values
             def safe_get(obj, path:str) -> bool:
@@ -256,13 +246,13 @@ class NSystem:
                 assert isinstance(value, int), f"Invalid property value: '{value}' for property '{prop}'. Must be an integer."
                 assert safe_get(self, prop), f"Invalid property name: '{prop}'. Must be a valid property of the NSystem or its subclasses."
 
-            self.__class__.preferences["properties"] = properties
+            oplanet_temp_config[self._config_key]["properties"] = properties
 
         if fallback is not None:
             assert isinstance(fallback, bool), f"Invalid value for fallback: '{fallback}'. Must be a boolean."
-            self.__class__.preferences["fallback"] = fallback
+            oplanet_temp_config[self._config_key]["fallback"] = fallback
 
-        if priority_references is not None or properties is not None or fallback is not None:
+        if references is not None or properties is not None or fallback is not None:
             self._choose_row() # choose again, based on the updated preferences
     
     def add_reference_priority(
@@ -271,7 +261,7 @@ class NSystem:
         date:int
     ):
         """
-        Adds a reference to the priority list. This is a shortcut for `set_preferences(priority_references=...)`.
+        Adds a reference to the priority list. This is a shortcut for `set_config(references=...)`.
 
         Parameters
         ----------
@@ -281,8 +271,8 @@ class NSystem:
             The date of the reference to add, as an integer year.
         """
         reference = f"{author}_{date}"
-        current_priority_references = self.__class__.preferences["priority_references"]
-        self.set_preferences(priority_references=sorted(set(current_priority_references + [reference])))
+        current_references = oplanet_temp_config[self._config_key]["references"]
+        self.set_config(references=sorted(set(current_references + [reference])))
 
 
     def remove_reference_priority(
@@ -291,7 +281,7 @@ class NSystem:
         date:int
     ):
         """
-        Removes a reference from the priority list. This is a shortcut for `set_preferences(priority_references=...)`.
+        Removes a reference from the priority list. This is a shortcut for `set_config(references=...)`.
 
         Parameters
         ----------
@@ -301,7 +291,7 @@ class NSystem:
             The date of the reference to remove, as an integer year.
         """
         reference = f"{author}_{date}"
-        self.set_preferences(priority_references=[ref for ref in self.__class__.preferences["priority_references"] if ref != reference])
+        self.set_config(references=[ref for ref in oplanet_temp_config[self._config_key]["references"] if ref != reference])
 
     def add_property_priority(
         self,
@@ -309,7 +299,7 @@ class NSystem:
         weight:int
     ):
         """
-        Adds a property to the priority list. This is a shortcut for `set_preferences(properties=...)`.
+        Adds a property to the priority list. This is a shortcut for `set_config(properties=...)`.
 
         Parameters
         ----------
@@ -318,40 +308,40 @@ class NSystem:
         weight : int
             The weight to apply to this property when choosing the row. Must be an integer.
         """
-        current_properties = self.__class__.preferences["properties"]
+        current_properties = oplanet_temp_config[self._config_key]["properties"]
         current_properties[property_name] = weight
-        self.set_preferences(properties=current_properties)
+        self.set_config(properties=current_properties)
 
     def remove_property_priority(
         self,
         property_name:str
     ):
         """
-        Removes a property from the priority list. This is a shortcut for `set_preferences(properties=...)`.
+        Removes a property from the priority list. This is a shortcut for `set_config(properties=...)`.
 
         Parameters
         ----------
         property_name : str
             The name of the property to remove, as a string. Must be a valid property of the NSystem or its subclasses.
         """
-        current_properties = self.__class__.preferences["properties"]
+        current_properties = oplanet_temp_config[self._config_key]["properties"]
         if property_name in current_properties:
             del current_properties[property_name]
-            self.set_preferences(properties=current_properties)
-    
+            self.set_config(properties=current_properties)
+
     def set_fallback(
         self,
         fallback:bool
     ):
         """
-        Sets the fallback strategy. This is a shortcut for `set_preferences(fallback=...)`.
+        Sets the fallback strategy. This is a shortcut for `set_config(fallback=...)`.
 
         Parameters
         ----------
         fallback : bool
             Whether to use a fallback strategy when, in a given row, a value is missing (looks for a replacement in other rows).
         """
-        self.set_preferences(fallback=fallback)
+        self.set_config(fallback=fallback)
 
 
     def _choose_row(self) -> None:
@@ -359,8 +349,8 @@ class NSystem:
         Among all rows of the dataframe, chooses the one to use for the system properties.
         """
         # disable fallback when looking for best rows, otherwise values will be filled by default
-        fallback = self.__class__.preferences["fallback"]
-        self.__class__.preferences["fallback"] = False
+        fallback = oplanet_temp_config[self._config_key]["fallback"]
+        oplanet_temp_config[self._config_key]["fallback"] = False
         def safe_get(obj, path:str) -> bool:
             try:
                 for attr in path.split("."):
@@ -378,7 +368,7 @@ class NSystem:
             error_existence = 0
             error_precision = 0
 
-            for priority_reference in self.__class__.preferences["priority_references"]:
+            for priority_reference in oplanet_temp_config[self._config_key]["references"]:
                 # get date as integer
                 date_str = priority_reference.rsplit("_", 1)[-1].strip()
                 date = int(date_str) if date_str.isdigit() else None
@@ -390,7 +380,7 @@ class NSystem:
                 if author in row_author and (date is None or row_date == date):
                     reference_matching += 1
 
-            for prop, weight in self.__class__.preferences["properties"].items():
+            for prop, weight in oplanet_temp_config[self._config_key]["properties"].items():
                 data = safe_get(self, prop)
 
                 # 1. Existence
@@ -422,7 +412,7 @@ class NSystem:
 
         self._chosen_row = max(range(len(self.df)), key=score_row)
         # reset fallback to its original value
-        self.__class__.preferences["fallback"] = fallback
+        oplanet_temp_config[self._config_key]["fallback"] = fallback
 
     def set_row(self, row:int):
         """
@@ -463,7 +453,7 @@ class NSystem:
 
         # 4. Check for fallback if necessary
         if np.isnan(value):
-            if self.__class__.preferences["fallback"] and _allow_fallback: # check wether any row has a value for this column. pick the one with lowest errors
+            if oplanet_temp_config[self._config_key]["fallback"] and _allow_fallback: # check wether any row has a value for this column. pick the one with lowest errors
                 original_chosen_row = self._chosen_row
                 best_value = np.nan
                 best_err1 = np.nan
@@ -705,7 +695,6 @@ class NSystem:
         reference = self.df[f"{self._prefix}_refname"].iloc[self._chosen_row]
         return self._parse_reference(reference)
     
-    
     # ------------------ #
     # !-- Properties --! #
     # ------------------ #
@@ -897,20 +886,8 @@ class NStar(NSystem):
     Basically an alias for NSystem, but with additional properties to handle data for a single star.
     """
     _prefix = "st"
+    _config_key = "star"
 
-    preferences = {
-        "priority_references": [ # if a row matches the refernece specified here, automatically choose it over others. list of strings ('{author}_{date}')
-            
-        ],
-        "properties": {
-            "age_myr":1, # which parameters you intend to use, and how much you want them to be not nans
-            "mass_solar":1,
-            "radius_solar":1,
-            "metallicity_dex":1,
-            "system.distance_pc":1
-        },
-        "fallback": False # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
-    }
 
     def __init__(self, osystem: NSystem):
         self.df = osystem.df
@@ -1093,26 +1070,9 @@ class NPlanet(NSystem):
     """
 
     _prefix = "pl"
+    _config_key = "planet"
 
-    preferences = {
-        "priority_references": [ # if a row matches the refernece specified here, automatically choose it over others. list of strings ('{author}_{date}')
-            
-        ],
-        "properties": {
-            "star.age_myr":1, # which parameters you intend to use, and how much you want them to be not nans
-            "system.distance_pc":1,
-            "orbital_period_yrs":2,
-            "mass_sini_mjup":1,
-            "mass_mjup":3,
-            "sma_au":2,
-            "eccentricity":1,
-            "inclination_deg":1,
-            "arg_periastron_deg":1,
-            "time_periastron_jd":1,
-            "rv_amplitude_ms":1,
-        },
-        "fallback": False # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
-    }
+    
 
     def __init__(self, osystem: NSystem):
         self.df = osystem.df
@@ -1244,8 +1204,8 @@ class NPlanet(NSystem):
             original_chosen_row = self._chosen_row
             self._chosen_row = row % len(self.df)
             # disable fallback to avoid picking values from other rows
-            fallback = self.__class__.preferences["fallback"]
-            self.__class__.preferences["fallback"] = False
+            fallback = ["fallback"]
+            oplanet_temp_config[self._config_key]["fallback"] = False
         Message(f"Planet {cstr(self.name):y} properties:").list({
             "Letter": self.letter,
             "Discovery year": self.discovery_year,
@@ -1265,7 +1225,7 @@ class NPlanet(NSystem):
         })
         if row is not None:
             self._chosen_row = original_chosen_row # reset to original chosen row
-            self.__class__.preferences["fallback"] = fallback # reset fallback to its original value
+            oplanet_temp_config[self._config_key]["fallback"] = fallback # reset fallback to its original value
 
 
 

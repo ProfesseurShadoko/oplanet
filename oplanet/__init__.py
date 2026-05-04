@@ -1,7 +1,7 @@
 
 
 __version__ = "1.3.1"
-
+from .oconfig import oplanet_config, oplanet_temp_config
 
 # ----------------------- #
 # !-- Simbad + Vizier --! #
