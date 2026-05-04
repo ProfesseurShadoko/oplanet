@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oplanet"
-version = "1.3.0"
+version = "1.3.1"
 description = "Lightweight Python wrapper around the NASA Exoplanet Archive."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
   { name = "ProfesseurShadoko" }

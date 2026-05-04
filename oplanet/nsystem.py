@@ -265,6 +265,95 @@ class NSystem:
         if priority_references is not None or properties is not None or fallback is not None:
             self._choose_row() # choose again, based on the updated preferences
     
+    def add_reference_priority(
+        self,
+        author:str,
+        date:int
+    ):
+        """
+        Adds a reference to the priority list. This is a shortcut for `set_preferences(priority_references=...)`.
+
+        Parameters
+        ----------
+        author : str
+            The author of the reference to add, as a string. Can be a substring of the actual author name in the reference (for instance "Smith" will match "Smith et al. 2020").
+        date : int, optional
+            The date of the reference to add, as an integer year.
+        """
+        reference = f"{author}_{date}"
+        current_priority_references = self.__class__.preferences["priority_references"]
+        self.set_preferences(priority_references=sorted(set(current_priority_references + [reference])))
+
+
+    def remove_reference_priority(
+        self,
+        author:str,
+        date:int
+    ):
+        """
+        Removes a reference from the priority list. This is a shortcut for `set_preferences(priority_references=...)`.
+
+        Parameters
+        ----------
+        author : str
+            The author of the reference to remove, as a string.
+        date : int
+            The date of the reference to remove, as an integer year.
+        """
+        reference = f"{author}_{date}"
+        self.set_preferences(priority_references=[ref for ref in self.__class__.preferences["priority_references"] if ref != reference])
+
+    def add_property_priority(
+        self,
+        property_name:str,
+        weight:int
+    ):
+        """
+        Adds a property to the priority list. This is a shortcut for `set_preferences(properties=...)`.
+
+        Parameters
+        ----------
+        property_name : str
+            The name of the property to add, as a string. Must be a valid property of the NSystem or its subclasses.
+        weight : int
+            The weight to apply to this property when choosing the row. Must be an integer.
+        """
+        current_properties = self.__class__.preferences["properties"]
+        current_properties[property_name] = weight
+        self.set_preferences(properties=current_properties)
+
+    def remove_property_priority(
+        self,
+        property_name:str
+    ):
+        """
+        Removes a property from the priority list. This is a shortcut for `set_preferences(properties=...)`.
+
+        Parameters
+        ----------
+        property_name : str
+            The name of the property to remove, as a string. Must be a valid property of the NSystem or its subclasses.
+        """
+        current_properties = self.__class__.preferences["properties"]
+        if property_name in current_properties:
+            del current_properties[property_name]
+            self.set_preferences(properties=current_properties)
+    
+    def set_fallback(
+        self,
+        fallback:bool
+    ):
+        """
+        Sets the fallback strategy. This is a shortcut for `set_preferences(fallback=...)`.
+
+        Parameters
+        ----------
+        fallback : bool
+            Whether to use a fallback strategy when, in a given row, a value is missing (looks for a replacement in other rows).
+        """
+        self.set_preferences(fallback=fallback)
+
+
     def _choose_row(self) -> None:
         """
         Among all rows of the dataframe, chooses the one to use for the system properties.
@@ -297,7 +386,8 @@ class NSystem:
                 author = priority_reference.rsplit("_", 1)[0].lower().replace(" ", "").replace("-", "").replace("_", "")
                 row_date = self.reference_date
                 row_author = self.reference_author.lower().replace(" ", "").replace("-", "").replace("_", "") if self.reference_author is not None else ""
-                if row_author in author and (date is None or row_date == date):
+        
+                if author in row_author and (date is None or row_date == date):
                     reference_matching += 1
 
             for prop, weight in self.__class__.preferences["properties"].items():
@@ -333,6 +423,14 @@ class NSystem:
         self._chosen_row = max(range(len(self.df)), key=score_row)
         # reset fallback to its original value
         self.__class__.preferences["fallback"] = fallback
+
+    def set_row(self, row:int):
+        """
+        Sets the row to use for the system properties. This can be used to manually choose a specific row, for instance if the user knows that a specific reference is more reliable than the others.
+        """
+        assert isinstance(row, int), f"Invalid type for row: {type(row)}. Must be an integer."
+        assert 0 <= row < len(self.df), f"Invalid value for row: {row}. Must be between 0 and {len(self.df)-1}."
+        self._chosen_row = row
 
 
     def _get(self, column:str, _allow_fallback:bool = True) -> np.ndarray:
@@ -496,7 +594,11 @@ class NSystem:
         
         # 1. If none of them are nans
         if not np.isnan(val):
-            return values
+            if np.isnan(val_upper):
+                val_upper = val * rel_uncertainty
+            if np.isnan(val_lower):
+                val_lower = -val * rel_uncertainty
+            return np.array([val, val_upper, val_lower])
         
         # 2. If all are nans
         if np.all(np.isnan(values)):
@@ -507,9 +609,9 @@ class NSystem:
         
         # 3. If uncertanties are missing, but value is not
         if not np.isnan(val):
-            if val_upper == np.nan:
+            if np.isnan(val_upper):
                 val_upper = val * rel_uncertainty
-            if val_lower == np.nan:
+            if np.isnan(val_lower):
                 val_lower = -val * rel_uncertainty
             return np.array([val, val_upper, val_lower])
     
@@ -807,7 +909,7 @@ class NStar(NSystem):
             "metallicity_dex":1,
             "system.distance_pc":1
         },
-        "fallback": True # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
+        "fallback": False # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
     }
 
     def __init__(self, osystem: NSystem):
@@ -1009,7 +1111,7 @@ class NPlanet(NSystem):
             "time_periastron_jd":1,
             "rv_amplitude_ms":1,
         },
-        "fallback": True # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
+        "fallback": False # wether to look for fallback values in other rows of the dataframe when the chosen row has a nan value
     }
 
     def __init__(self, osystem: NSystem):
