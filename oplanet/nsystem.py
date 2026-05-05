@@ -7,7 +7,7 @@
 import oakley
 from .star_utils import get_star_aliases, parse_star_name,  get_star_name
 from .data_loaders import get_database, refresh_data
-from .oconfig import oplanet_temp_config
+from .oconfig import oplanet_temp_config, reset_config
 
 import numpy as np
 import astropy.units as u
@@ -227,7 +227,7 @@ class NSystem:
                     raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date'.")
                 # check that the date part is an integer, and the rest is string
                 author, date = ref.rsplit("_", 1)
-                if not date.isdigit():
+                if not date.isdigit() and date != "None":
                     raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date', where Author is a string and Date is an integer.")
             oplanet_temp_config[self._config_key]["references"] = references
         if properties is not None:
@@ -244,7 +244,7 @@ class NSystem:
             for prop, value in properties.items():
                 assert isinstance(prop, str), f"Invalid property name: '{prop}'. Must be a string."
                 assert isinstance(value, int), f"Invalid property value: '{value}' for property '{prop}'. Must be an integer."
-                assert safe_get(self, prop), f"Invalid property name: '{prop}'. Must be a valid property of the NSystem or its subclasses."
+                assert safe_get(self, prop), f"Invalid property name: '{prop}'. Must be a valid property of the NSystem or its subclasses. Current class: {self.__class__.__name__}."
 
             oplanet_temp_config[self._config_key]["properties"] = properties
 
@@ -258,7 +258,7 @@ class NSystem:
     def add_reference_priority(
         self,
         author:str,
-        date:int
+        date:int|None = None
     ):
         """
         Adds a reference to the priority list. This is a shortcut for `set_config(references=...)`.
@@ -268,7 +268,7 @@ class NSystem:
         author : str
             The author of the reference to add, as a string. Can be a substring of the actual author name in the reference (for instance "Smith" will match "Smith et al. 2020").
         date : int, optional
-            The date of the reference to add, as an integer year.
+            The date of the reference to add, as an integer year. If None, any date will match.
         """
         reference = f"{author}_{date}"
         current_references = oplanet_temp_config[self._config_key]["references"]
@@ -351,6 +351,7 @@ class NSystem:
         # disable fallback when looking for best rows, otherwise values will be filled by default
         fallback = oplanet_temp_config[self._config_key]["fallback"]
         oplanet_temp_config[self._config_key]["fallback"] = False
+
         def safe_get(obj, path:str) -> bool:
             try:
                 for attr in path.split("."):
@@ -401,16 +402,38 @@ class NSystem:
                     value, err1, err2 = data
                     if not np.isnan(value):
                         existence += weight
-                    if not np.isnan(err1):
-                        error_existence += weight
-                    if not np.isnan(err2):
-                        error_existence += weight
+                    if not np.isnan(err1) or not np.isnan(err2):
+                        error_existence += weight * 2
                     if not np.isnan(err1) and not np.isnan(err2):
-                        relative_error_range = (np.abs(err1) + np.abs(err2)) / np.abs(value) if value != 0 else np.inf
-                        error_precision += weight / relative_error_range if relative_error_range != 0 else 0
-            return (reference_matching, existence, error_existence, error_precision)
+                        error_existence += weight / 2
+                        # error_precision += weight * np.abs(value) / (np.abs(err1) + np.abs(err2)) if (err1 != 0 or err2 != 0) else 0 # this can overweight certain parameters
+                        # let's count how many rows are beaten by this one on this parameter.
+                        error_range = np.abs(err1) + np.abs(err2)
+                        for i in range(len(self.df)):
+                            previous_chosen_row = self._chosen_row
+                            self._chosen_row = i
+                            other_data = safe_get(self, prop)
+                            if np.any(np.isnan(other_data)):
+                                error_precision += weight / len(self.df)
+                            else:
+                                other_value, other_err1, other_err2 = other_data
+                                other_error_range = np.abs(other_err1) + np.abs(other_err2)
+                                if error_range < other_error_range:
+                                    error_precision += weight / len(self.df)
+                            self._chosen_row = previous_chosen_row
+                            
 
-        self._chosen_row = max(range(len(self.df)), key=score_row)
+            return (reference_matching, existence, error_existence, float(error_precision))
+        # save priorities to a list: index (reference) --> tuple (reference_matching, existence, error_existence, error_precision)
+        self._priorities = []
+        for i in range(len(self.df)):
+            self._chosen_row = i
+            reference = self.reference
+            self._priorities.append((i, reference, score_row(i)))
+        # sort by priority
+        self._priorities.sort(key=lambda x: x[2], reverse=True)
+
+        self._chosen_row = self._priorities[0][0] # choose the row with the best priority
         # reset fallback to its original value
         oplanet_temp_config[self._config_key]["fallback"] = fallback
 
@@ -509,6 +532,35 @@ class NSystem:
 
         return np.array([value, err1, err2])
     
+
+    @staticmethod
+    def reset_config():
+        """
+        Resets the temporary configuration to the default
+        configuration (stored in the oplanet_config object,
+        synchronized with the json file).
+        """
+        # print(f"Resetting ID: {id(oplanet_temp_config)}")
+        reset_config()
+
+    def display_config(self):
+        """
+        Displays the current configuration for the object's properties.
+        """
+        config = oplanet_temp_config[self._config_key]
+        with Message(f"Current configuration for '{self._config_key}':"):
+            Message("References priority:").list(config["references"])
+            Message("Properties priority:").list(config["properties"])
+            Message(f"Fallback: {config['fallback']}")
+
+    def display_priorities(self):
+        """
+        Displays the priorities of each row in the dataframe (as computed by the last call to the _choose_row method).
+        """
+        Message(f"Row priorities for {self._config_key}: (ref-match, val-notna, err-notna, err-range)", "?").list([
+            f"Row {i}: {cstr(reference).italic()} --> {priority}" for i, reference, priority in self._priorities
+        ])
+
 
 
     # ------------------ #
@@ -1191,7 +1243,7 @@ class NPlanet(NSystem):
         out = self.copy()
         # keep only the chosen row
         out.df = self.df.iloc[[self._chosen_row]].reset_index(drop=True).copy(deep=True)
-        return NSystem(out)
+        return NSystem(out.df)
     
     
 

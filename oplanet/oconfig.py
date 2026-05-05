@@ -1,6 +1,7 @@
 
 from oakley import XConfig
 import os
+from copy import deepcopy
 
 # ---------------- #
 # !-- Filepath --! #
@@ -59,4 +60,23 @@ default_config = {
 oplanet_config = XConfig(
     dirname, default_config=default_config
 )
-oplanet_temp_config = dict(oplanet_config)
+oplanet_temp_config = deepcopy(dict(oplanet_config))
+
+def reset_config():
+    """
+    Resets the temporary configuration to the default configuration
+    (which is stored in the oplanet_config object).
+    """
+    global oplanet_temp_config
+    # print(f"Resetting ID: {id(oplanet_temp_config)}")
+    oplanet_temp_config.clear()
+    oplanet_temp_config.update(oplanet_config)
+    
+def update_default_config():
+    """
+    Synchorinzes the default configuration with the json file,
+    so that the next time the package is imported, the default config
+    is the current config (this has nothing to do with the temporary
+    config, which is only used for the current session).
+    """
+    oplanet_config._dump()
