@@ -24,7 +24,8 @@ default_config = {
             "ra":1,
             "dec":1
         },
-        "fallback": False
+        "fallback": False,
+        "order_authors": True
     },
     "star": {
         "references": [],
@@ -35,7 +36,8 @@ default_config = {
             "metallicity_dex":1,
             "system.distance_pc":1
         },
-        "fallback": False
+        "fallback": False,
+        "order_authors": True
     },
     "planet": {
         "references": [],
@@ -52,8 +54,9 @@ default_config = {
             "time_periastron_jd":1,
             "rv_amplitude_ms":1,
         },
-        "fallback": False
-    }
+        "fallback": False,
+        "order_authors": True
+    },
 }
 
 

@@ -196,7 +196,8 @@ class NSystem:
         self,
         references: list[str] = None,
         properties: dict[str, int] = None,
-        fallback: bool = None
+        fallback: bool = None,
+        order_authors: bool = None
     ):
         """
         Sets the preferences for the system. These preferences are used to choose the row
@@ -210,6 +211,8 @@ class NSystem:
             A dictionary mapping property names to look for to a weight to apply. Default is None (don't change).
         fallback : bool, optional
             Whether to use a fallback strategy when, in a given row, a value is missing (looks for a replacement in other rows). Default is None (don't change).
+        order_authors : bool, optional
+            Whether to prefer the reference that appears first in the list of references in case of multiple matches. Default is None (don't change).
 
         Notes
         -----
@@ -230,6 +233,7 @@ class NSystem:
                 if not date.isdigit() and date != "None":
                     raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date', where Author is a string and Date is an integer.")
             oplanet_temp_config[self._config_key]["references"] = references
+        
         if properties is not None:
             # check that it corresponds to property names and integer values
             def safe_get(obj, path:str) -> bool:
@@ -251,8 +255,12 @@ class NSystem:
         if fallback is not None:
             assert isinstance(fallback, bool), f"Invalid value for fallback: '{fallback}'. Must be a boolean."
             oplanet_temp_config[self._config_key]["fallback"] = fallback
+        
+        if order_authors is not None:
+            assert isinstance(order_authors, bool), f"Invalid value for order_authors: '{order_authors}'. Must be a boolean."
+            oplanet_temp_config[self._config_key]["order_authors"] = order_authors
 
-        if references is not None or properties is not None or fallback is not None:
+        if references is not None or properties is not None or fallback is not None or order_authors is not None:
             self._choose_row() # choose again, based on the updated preferences
     
     def add_reference_priority(
@@ -343,6 +351,23 @@ class NSystem:
         """
         self.set_config(fallback=fallback)
 
+    def set_order_authors(
+        self,
+        order_authors:bool
+    ):
+        """
+        Set the weighting strategy for reference matching. If True, in the
+        case of multiple matches for a reference, the one that appears first
+        will be prefered. Otherwise, the chosen reference will depend on the 
+        quality of the data, between equal matching references.
+
+        Parameters
+        ----------
+        order_authors : bool
+            Whether to prefer the reference that appears first in the list of references in case of multiple matches.
+        """
+        self.set_config(order_authors=order_authors)
+
 
     def _choose_row(self) -> None:
         """
@@ -368,8 +393,10 @@ class NSystem:
             existence = 0
             error_existence = 0
             error_precision = 0
+            _not_na_weights = []
 
-            for priority_reference in oplanet_temp_config[self._config_key]["references"]:
+            N_references = len(oplanet_temp_config[self._config_key]["references"])
+            for i,priority_reference in enumerate(oplanet_temp_config[self._config_key]["references"]):
                 # get date as integer
                 date_str = priority_reference.rsplit("_", 1)[-1].strip()
                 date = int(date_str) if date_str.isdigit() else None
@@ -379,7 +406,10 @@ class NSystem:
                 row_author = self.reference_author.lower().replace(" ", "").replace("-", "").replace("_", "") if self.reference_author is not None else ""
         
                 if author in row_author and (date is None or row_date == date):
-                    reference_matching += 1
+                    if oplanet_temp_config[self._config_key]["order_authors"]:
+                        reference_matching += N_references - i # higher score for first reference in the list!
+                    else:
+                        reference_matching += 1
 
             for prop, weight in oplanet_temp_config[self._config_key]["properties"].items():
                 data = safe_get(self, prop)
@@ -413,14 +443,23 @@ class NSystem:
                             previous_chosen_row = self._chosen_row
                             self._chosen_row = i
                             other_data = safe_get(self, prop)
+                            _not_na_weights.append(weight)
+
                             if np.any(np.isnan(other_data)):
-                                error_precision += weight / len(self.df)
+                                error_precision += weight
                             else:
                                 other_value, other_err1, other_err2 = other_data
                                 other_error_range = np.abs(other_err1) + np.abs(other_err2)
-                                if error_range < other_error_range:
-                                    error_precision += weight / len(self.df)
+                                # let's comapre error ranges.
+                                if np.isclose(error_range, other_error_range, rtol=1e-2, atol=1e-12):
+                                    # this checks |err - err_other| < atol+rtol*|err - err_other|
+                                    error_precision += weight / 2 # half a point for being close enough
+                                elif error_range < other_error_range:
+                                    error_precision += weight
+                                else:
+                                    pass # no point if error_range is too big
                             self._chosen_row = previous_chosen_row
+            error_precision = error_precision / np.sum(_not_na_weights) if np.sum(_not_na_weights) > 0 else 0
                             
 
             return (reference_matching, existence, error_existence, float(error_precision))
@@ -547,11 +586,13 @@ class NSystem:
         """
         Displays the current configuration for the object's properties.
         """
+        boolean_to_str = lambda b: cstr("True").green() if b else cstr("False").red()
         config = oplanet_temp_config[self._config_key]
         with Message(f"Current configuration for '{self._config_key}':"):
             Message("References priority:").list(config["references"])
             Message("Properties priority:").list(config["properties"])
-            Message(f"Fallback: {config['fallback']}")
+            Message(f"Fallback: {boolean_to_str(config['fallback'])}")
+            Message(f"Order authors: {boolean_to_str(config['order_authors'])}")
 
     def display_priorities(self):
         """
