@@ -1082,30 +1082,34 @@ class NStar(NSystem):
         if np.any(sep_arcsec <= 0):
             raise ValueError("sep_arcsec must be strictly positive.")
 
-        # 2. Get measurements
-        teff, teff_err1, teff_err2 = self.fill(self.Teff_k)
-        radius_solar, radius_err1_solar, radius_err2_solar = self.fill(self.radius_solar)
-        distance_pc, distance_err1_pc, distance_err2_pc = self.fill(self.distance_pc)
+        try:
+            # 2. Get measurements
+            teff, teff_err1, teff_err2 = self.fill(self.Teff_k)
+            radius_solar, radius_err1_solar, radius_err2_solar = self.fill(self.radius_solar)
+            distance_pc, distance_err1_pc, distance_err2_pc = self.fill(self.distance_pc)
 
-        # 3. Convert distances
-        rstar_to_au = u.R_sun.to(u.AU) # a float
-        radius_au = radius_solar * rstar_to_au
-        radius_err1_au = radius_err1_solar * rstar_to_au
-        radius_err2_au = radius_err2_solar * rstar_to_au
+            # 3. Convert distances
+            rstar_to_au = u.R_sun.to(u.AU) # a float
+            radius_au = radius_solar * rstar_to_au
+            radius_err1_au = radius_err1_solar * rstar_to_au
+            radius_err2_au = radius_err2_solar * rstar_to_au
 
-        sma_au = sep_arcsec * distance_pc
-        sma_err1_au = sep_arcsec * distance_err1_pc
-        sma_err2_au = sep_arcsec * distance_err2_pc
-        
-        # 4. Compute Tirr
-        def T(teff, R, a):
-            return teff * np.sqrt(R / (2*a)) * (1 - albedo)**0.25
-        
-        tirr = T(teff, radius_au, sma_au)
-        
-        # 5. Propagate uncertainties
-        tirr_err2 = T(teff + teff_err2, radius_au + radius_err1_au, sma_au + sma_err2_au) - tirr
-        tirr_err1 = T(teff + teff_err1, radius_au + radius_err2_au, sma_au + sma_err1_au) - tirr
+            sma_au = sep_arcsec * distance_pc
+            sma_err1_au = sep_arcsec * distance_err1_pc
+            sma_err2_au = sep_arcsec * distance_err2_pc
+            
+            # 4. Compute Tirr
+            def T(teff, R, a):
+                return teff * np.sqrt(R / (2*a)) * (1 - albedo)**0.25
+            
+            tirr = T(teff, radius_au, sma_au)
+            
+            # 5. Propagate uncertainties
+            tirr_err2 = T(teff + teff_err2, radius_au + radius_err1_au, sma_au + sma_err2_au) - tirr
+            tirr_err1 = T(teff + teff_err1, radius_au + radius_err2_au, sma_au + sma_err1_au) - tirr
+        except ValueError:
+            # no data is available, return nans, same shape as sep_arcsec
+            tirr, tirr_err1, tirr_err2 = np.full_like(sep_arcsec, np.nan), np.full_like(sep_arcsec, np.nan), np.full_like(sep_arcsec, np.nan)
 
         # return as array
         return np.stack([tirr, tirr_err1, tirr_err2], axis=-1)

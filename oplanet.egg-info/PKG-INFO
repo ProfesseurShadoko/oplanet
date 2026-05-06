@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: oplanet
-Version: 1.3.0
+Version: 1.4.0
 Summary: Lightweight Python wrapper around the NASA Exoplanet Archive.
 Author: ProfesseurShadoko
 License: MIT License
@@ -35,7 +35,7 @@ Classifier: License :: OSI Approved :: MIT License
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3 :: Only
 Classifier: Topic :: Scientific/Engineering :: Astronomy
-Requires-Python: >=3.9
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: oakley
@@ -49,25 +49,9 @@ Dynamic: license-file
 
 # oplanet
 
-Lightweight Python wrapper around the NASA Exoplanet Archive with practical helpers for stellar aliases, photometry, and system/planet properties.
+Lightweight Python wrapper around the NASA Exoplanet Archive and the SVO database with practical helpers for stellar aliases, photometry, and system/planet properties.
 
 This package is built to make exoplanet metadata easier to use in notebooks and scripts by exposing a simple object API and automatically selecting the most reliable published values.
-
-`NSystem` is exported at package level, so you can import it directly with `from oplanet import NSystem`.
-
-## What it is
-
-`oplanet` wraps data from:
-
-- NASA Exoplanet Archive
-- Simbad / Vizier utilities for star aliases, coordinates, and photometry
-
-For parameters with multiple entries in the archive, it chooses the best measurement by preferring rows with the smallest uncertainty bars (when available), with fallback to limits when no direct value exists.
-
-Measurement-return convention used by `NSystem`/`NStar`/`NPlanet` properties:
-
-- Standard measurement: `[value, err_pos, err_neg]`
-- No direct measurement but limits exist: `[nan, limit_upper, limit_lower]`
 
 ## Installation
 
@@ -83,15 +67,6 @@ pip install oplanet
 pip install "git+https://github.com/ProfesseurShadoko/oplanet.git"
 ```
 
-### From source
-
-```bash
-git clone https://github.com/ProfesseurShadoko/oplanet.git
-cd oplanet
-python -m venv .venv
-source .venv/bin/activate
-pip install .
-```
 
 ## Requirements
 
@@ -104,6 +79,7 @@ Dependencies are listed in `requirements.txt`:
 - `astropy`
 - `scipy`
 - `matplotlib`
+- `requests`
 
 ## Quick examples
 
@@ -140,19 +116,12 @@ print(system.b.orbital_period_yrs)
 ### 3. One-line import for common API
 
 ```python
-from oplanet import NSystem, parse_star_name, get_star_aliases, get_photometry_jy
+from oplanet import NSystem, parse_star_name, get_star_aliases, get_photometry_jy, SFilter
 ```
 
-### 4. Get stellar photometry at a wavelength
 
-```python
-from oplanet import get_photometry_jy
 
-flux_jy = get_photometry_jy("LHS 1140", 11.56)
-print(flux_jy)
-```
-
-### 5. Pretty-print helpers (`display` and `print_column`)
+### 4. Pretty-print helpers (`display` and `print_column`)
 
 ```python
 from oplanet import NSystem
@@ -165,9 +134,6 @@ system.display()
 # Human-readable summary for star and a planet
 system.star.display()
 system.b.display()
-
-# Print raw dataframe values for a specific archive column
-system.print_column("st_age")
 ```
 
 ## Returned values
@@ -196,12 +162,11 @@ print(distance)  # same convention
 
 ## Data behavior
 
-On import, the loader keeps a local CSV cache in `oplanet/data`, removes older archive snapshots, and refreshes stale files automatically.
+On import, the loader keeps a local CSV cache in `oplanet/data`, removes older archive snapshots, and refreshes stale files automatically. Filters retrieved from the SVO database are also stored locally.
 
 ## Notes
 
 - Internet access is needed for Simbad/Vizier queries and first-time archive download.
-- This repository is currently source-first (requirements-driven), not a published PyPI package.
 - The support for [exoplanet.eu](https://exoplanet.eu/catalog/all_fields/) will be added once the database becomes more reliable and *code friendly*.
 
 ## License
