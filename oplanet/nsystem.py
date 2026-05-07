@@ -728,48 +728,57 @@ class NSystem:
         ```
         """
         # 1. Parse the reference string to BeautifulSoup object
-        soup = BeautifulSoup(ref, "html.parser").find("a")
+        try:
+            soup = BeautifulSoup(ref, "html.parser").find("a")
 
-        # 2. Extract date from the refstr
-        ref_str = soup["refstr"]
-        last_part = ref_str.split("_")[-1].strip()
-        if last_part and last_part.isdigit():
-            date = int(last_part)
-        else:
-            date = None # this happens when source is a catalog
-        
-        # 3. Extract author from the refstr
-        date_as_str = str(date) if date is not None else "NO_DATE_:("
-        author = ref_str.replace(date_as_str, "")
-        # split and join around "_"
-        author = " ".join([
-            part for part in author.split("_") if part != ""
-        ])
-        # remove ET AL, AMP, AND
-        author = author.split(" ET AL")[0].split(" AMP ")[0].split(" AND ")[0].split(" & ")[0].strip()
+            # 2. Extract date from the refstr
+            ref_str = soup["refstr"]
+            last_part = ref_str.split("_")[-1].strip()
+            if last_part and last_part.isdigit():
+                date = int(last_part)
+            else:
+                date = None # this happens when source is a catalog
+            
+            # 3. Extract author from the refstr
+            date_as_str = str(date) if date is not None else "NO_DATE_:("
+            author = ref_str.replace(date_as_str, "")
+            # split and join around "_"
+            author = " ".join([
+                part for part in author.split("_") if part != ""
+            ])
+            # remove ET AL, AMP, AND
+            author = author.split(" ET AL")[0].split(" AMP ")[0].split(" AND ")[0].split(" & ")[0].strip()
 
-        # 4. Handle name anomalies
-        if " " in author:
-            # assume two names are displayed --> fall back on the text of the link, which might be in a better format
-            author:str = soup.text.strip()
-            # replace date if it is in the text
-            if date is not None and str(date) in author:
-                author = author.replace(str(date), "").strip()
-                author = author.upper() # match format of ref str
-            # remove ET AL, AMP, AND again
-            author = author.split(" ET AL ")[0].split(" ET. AL.")[0].split(" AMP ")[0].split(" AND ")[0].split(" & ")[0].strip()
-        
-        # 5. Extract href and text
-        href = soup["href"]
-        text = soup.text.strip()
+            # 4. Handle name anomalies
+            if " " in author:
+                # assume two names are displayed --> fall back on the text of the link, which might be in a better format
+                author:str = soup.text.strip()
+                # replace date if it is in the text
+                if date is not None and str(date) in author:
+                    author = author.replace(str(date), "").strip()
+                    author = author.upper() # match format of ref str
+                # remove ET AL, AMP, AND again
+                author = author.split(" ET AL ")[0].split(" ET. AL.")[0].split(" AMP ")[0].split(" AND ")[0].split(" & ")[0].strip()
+            
+            # 5. Extract href and text
+            href = soup["href"]
+            text = soup.text.strip()
 
-        # 6. Return the result as a dictionary
-        return {
-            "date": date, # int
-            "author": author, # str
-            "href": href, # str
-            "reference": text # str
-        }
+            # 6. Return the result as a dictionary
+            return {
+                "date": date, # int
+                "author": author, # str
+                "href": href, # str
+                "reference": text # str
+            }
+        except Exception as e:
+            # Message(f"Unable to load reference: {ref}", "!")
+            return {
+                "date": "N/A",
+                "author": "N/A",
+                "href": "N/A",
+                "reference": "N/A"
+            }
     
     def get_reference(self) -> dict:
         """
@@ -1211,6 +1220,13 @@ class NPlanet(NSystem):
         """
         return self.df["discoverymethod"].iloc[0]
     
+    @property
+    def controversial(self) -> bool:
+        """
+        Returns whether the planet is considered controversial or not, based on the "pl_controvflag" column.
+        """
+        return self.df["pl_controv_flag"].iloc[0] == 1
+    
 
     # -------------------------- #
     # !-- Orbital properties --! #
@@ -1307,6 +1323,7 @@ class NPlanet(NSystem):
             "Letter": self.letter,
             "Discovery year": self.discovery_year,
             "Discovery method": self.discovery_method,
+            "Controversial": cstr(self.controversial).red() if self.controversial else cstr(self.controversial).green(),
             "Orbital period (yrs)": self.orbital_period_yrs,
             "Mass (Mjup)": self.mass_mjup,
             "Mass sin(i) (Mjup)": self.mass_sini_mjup,
