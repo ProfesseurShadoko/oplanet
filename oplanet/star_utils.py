@@ -13,17 +13,15 @@ try:
     from astroquery.vizier import Vizier
     Simbad.add_votable_fields('parallax')
     Vizier.ROW_LIMIT = -1
-
     catalogs = [
         "II/246/out",      # 2MASS
         "II/328/allwise",  # WISE
-        "IV/38/tic"
+        "I/355/gaiadr3",    # GAIA
     ]
-
     viz = Vizier(columns=["*"], catalog=catalogs)
-
 except:
     Message("Failed to import Simbad or Vizier. Check your internet connection.", "!")
+
 
 from astropy import units as u
 from astropy import constants as const
@@ -35,8 +33,6 @@ import numbers
 
 from astropy.table import Table
 from urllib.parse import quote
-
-from oakley import Message, ProgressBar, cstr, Task
 import matplotlib.pyplot as plt
 
 # find the directory of the current python file
@@ -48,7 +44,12 @@ import json
 
 
 class StarInfoRetriever:
-    photometric_points = ["WISE:W1", "WISE:W2", "WISE:W3", "WISE:W4", "2MASS:J", "2MASS:H", "2MASS:Ks"]
+    photometric_points = [
+        "WISE:W1", "WISE:W2", "WISE:W3", "WISE:W4",
+        "2MASS:J", "2MASS:H", "2MASS:Ks",
+        "Gaia:G", "Gaia:BP", "Gaia:RP",
+        "GAIA/GAIA3:Grp", "GAIA/GAIA3:G", "GAIA/GAIA3:Gbp",
+    ]
     catalog_priorities = ["HD", "HIP", "GJ", "LHS", "HR", "TOI", "LTT", "L", "2MASS", "TYC", "BD", "SAO"]
     radius = 2
     spline_order = 2
@@ -62,7 +63,7 @@ class StarInfoRetriever:
     # ---------------- #
 
     @staticmethod
-    def get_star_distance_pc(star:str) -> u.Quantity:
+    def get_star_distance_pc(star:str):
         """
         Get the distance to a star in parsecs using Simbad. Retrieved from parallax.
 
@@ -93,7 +94,7 @@ class StarInfoRetriever:
             plx_kwd = "plx_value"
         parallax_mas = result[plx_kwd][0]
         distance_pc = 1e3 / parallax_mas
-        StarInfoRetriever._star_distance_cache[StarInfoRetriever.star_to_cache_name(star)] = distance_pc * u.pc
+        StarInfoRetriever._star_distance_cache[StarInfoRetriever.star_to_cache_name(star)] = distance_pc
 
         # 4. Return
         return StarInfoRetriever.get_star_distance_pc(star)
@@ -259,7 +260,7 @@ class StarInfoRetriever:
     def __init__(self, star:str):
         self.star = StarInfoRetriever.get_star_name(star)
 
-        if StarInfoRetriever.star_to_cache_name(star) in StarInfoRetriever._cache:
+        if StarInfoRetriever.star_to_cache_name(self.star) in StarInfoRetriever._cache:
             self._load_from_cache()
         else:
             self._load_photometry()
@@ -391,9 +392,9 @@ class StarInfoRetriever:
                     self.df.drop(best_removal, inplace=True)
             
             # 9. Compute wavelengths
-            self.df["wavelength_um"] = ( const.c.to("um/s") / (self.df["sed_freq"].values * u.GHz) ).to("um").value
+            self.df["wavelength_m"] = ( const.c.to("um/s") / (self.df["sed_freq"].values * u.GHz) ).to(u.m).value
             self.df["flux_Jy"] = self.df["sed_flux"].values# * u.Jy
-            self._original_df["wavelength_um"] = ( const.c.to("um/s") / (self._original_df["sed_freq"].values * u.GHz) ).to("um").value
+            self._original_df["wavelength_m"] = ( const.c.to("um/s") / (self._original_df["sed_freq"].values * u.GHz) ).to(u.m).value
             self._original_df["flux_Jy"] = self._original_df["sed_flux"].values
 
     def _check_wise4(self) -> None:
@@ -401,7 +402,7 @@ class StarInfoRetriever:
         Sometimes, WISE_W4 photometry is completely off. This function checks if the WISE_W4 point is an outlier (ie greater than W3)
         """        
         # sort df by wavelength
-        self.df.sort_values(by=["wavelength_um"], inplace=True)
+        self.df.sort_values(by=["wavelength_m"], inplace=True)
         self.df = self.df.reset_index(drop=True)
         
         # check whether the last point as greater flux than the second last point, if so drop the last point
@@ -415,7 +416,7 @@ class StarInfoRetriever:
         data = StarInfoRetriever._cache[StarInfoRetriever.star_to_cache_name(self.star)]
         self.df = pd.DataFrame({
             "sed_filter": list(data.keys()),
-            "wavelength_um": [data[filter_name]["wavelength_um"] for filter_name in data.keys()],
+            "wavelength_m": [data[filter_name]["wavelength_m"] for filter_name in data.keys()],
             "flux_Jy": [data[filter_name]["flux_Jy"] for filter_name in data.keys()],
         })
         
@@ -426,7 +427,7 @@ class StarInfoRetriever:
         """
         Fit the photometry loaded by load_photometry() with a spline.
         """
-        x = np.log(self.df["wavelength_um"].values)
+        x = np.log(self.df["wavelength_m"].values)
         y = np.log(self.df["flux_Jy"].values)
         
         # sort them (even though they should already be sorted)
@@ -439,34 +440,34 @@ class StarInfoRetriever:
         
         # we do not save the spline, we save fluxes on a finer grid instead.
         # then, we will interpolate linearly on that grid when needed.
-        self.wl_grid = np.logspace(x.min(), x.max(), 500, base=np.e) * u.micron
-        log_flux_grid = spline(np.log(self.wl_grid.to(u.micron).value))
-        self.flux_grid = np.exp(log_flux_grid) * u.Jy
+        self.wl_grid = np.logspace(x.min(), x.max(), 500, base=np.e) # in m
+        log_flux_grid = spline(np.log(self.wl_grid))
+        self.flux_grid = np.exp(log_flux_grid) # in Jy
         
         
         
-    def get_photometry(self, wavlengths: u.Quantity) -> u.Quantity:
+    def get_photometry(self, wavlengths: np.ndarray) -> np.ndarray:
         """
         Get the stellar flux at given wavelengths by interpolating the fitted photometry.
 
         Parameters
         ----------
-        wavlengths : u.Quantity
-            Wavelengths at which to get the stellar flux.
+        wavlengths : np.ndarray
+            Wavelengths at which to get the stellar flux. In meters.
 
         Returns
         -------
-        u.Quantity
-            Stellar flux at the given wavelengths.
+        np.ndarray
+            Stellar flux at the given wavelengths. In Jy.
         """
         interp_func = interp1d(
-            np.log(self.wl_grid.to(u.micron).value),
-            np.log(self.flux_grid.to(u.Jy).value),
+            np.log(self.wl_grid),
+            np.log(self.flux_grid),
             kind="linear",
             bounds_error=False,
             fill_value="extrapolate"
         )
-        fluxes = np.exp(interp_func(np.log(wavlengths.to(u.micron).value))) * u.Jy
+        fluxes = np.exp(interp_func(np.log(wavlengths)))
         return fluxes
     
 
@@ -480,8 +481,8 @@ class StarInfoRetriever:
         # 1. Scatter original data
         if hasattr(self, "_original_df"):
             plt.scatter(
-                self._original_df["wavelength_um"].values,
-                self._original_df["flux_Jy"].values,
+                self._original_df["wavelength_m"] * 1e6, # plot in um
+                self._original_df["flux_Jy"],
                 color="gray",
                 label="Original Data",
                 alpha=0.5,
@@ -491,8 +492,8 @@ class StarInfoRetriever:
         
         # 2. Scatter cleaned data on top
         plt.scatter(
-            self.df["wavelength_um"].values,
-            self.df["flux_Jy"].values,
+            self.df["wavelength_m"]*1e6,
+            self.df["flux_Jy"],
             color="darkblue",
             label="Cleaned Data",
             s=20,
@@ -501,8 +502,8 @@ class StarInfoRetriever:
         
         # 3. Plot fitted spline below
         plt.plot(
-            self.wl_grid.to(u.micron).value,
-            self.flux_grid.to(u.Jy).value,
+            self.wl_grid*1e6,
+            self.flux_grid,
             color="red",
             label="Fitted Spline",
             alpha=0.7,
@@ -512,22 +513,22 @@ class StarInfoRetriever:
         # 4. Add extrapolated regions
         log_extrapolation = np.log10(2) # if extrapolation must be 10 times smaller/larger than the min/max wavelength, put 10 here
         
-        x_extrapolated = np.logspace(np.log10(self.wl_grid.min().to(u.micron).value) - log_extrapolation, np.log10(self.wl_grid.min().to(u.micron).value), 100) * u.micron
-        y_extrapolated = self.get_photometry(x_extrapolated)
+        x_extrapolated = np.logspace(np.log10(self.wl_grid.min()) - log_extrapolation, np.log10(self.wl_grid.min()), 100) # in m
+        y_extrapolated = self.get_photometry(x_extrapolated) # get_photometry expects m
         plt.plot(
-            x_extrapolated.to(u.micron).value,
-            y_extrapolated.to(u.Jy).value,
+            x_extrapolated*1e6,
+            y_extrapolated,
             color="red",
             alpha=0.3,
             linestyle="--",
             label="Extrapolation",
             zorder=5,
         )
-        x_extrapolated = np.logspace(np.log10(self.wl_grid.max().to(u.micron).value), np.log10(self.wl_grid.max().to(u.micron).value) + log_extrapolation, 100) * u.micron
+        x_extrapolated = np.logspace(np.log10(self.wl_grid.max()), np.log10(self.wl_grid.max()) + log_extrapolation, 100)
         y_extrapolated = self.get_photometry(x_extrapolated)
         plt.plot(
-            x_extrapolated.to(u.micron).value,
-            y_extrapolated.to(u.Jy).value,
+            x_extrapolated*1e6, # plot in um
+            y_extrapolated,
             color="red",
             alpha=0.3,
             linestyle="--",
@@ -570,11 +571,11 @@ class StarInfoRetriever:
         )
         
         for i, (star, data) in enumerate(sorted_cache_items):
-            wavelengths = np.array([data[filter_name]["wavelength_um"] for filter_name in data.keys()]) * u.um
-            fluxes = np.array([data[filter_name]["flux_Jy"] for filter_name in data.keys()]) * u.Jy
+            wavelengths = np.array([data[filter_name]["wavelength_m"] for filter_name in data.keys()]) # in m
+            fluxes = np.array([data[filter_name]["flux_Jy"] for filter_name in data.keys()]) # in Jy
             plt.plot(
-                wavelengths.to(u.micron).value,
-                fluxes.to(u.Jy).value,
+                wavelengths*1e6, # plot in um
+                fluxes,
                 marker="o",
                 color=colors[i % len(colors)],
                 label=star
@@ -596,7 +597,7 @@ class StarInfoRetriever:
     def add_to_cache(self) -> None:
         data = {
             filter_name: {
-                "wavelength_um": float(self.df[self.df["sed_filter"] == filter_name]["wavelength_um"].values[0]),
+                "wavelength_m": float(self.df[self.df["sed_filter"] == filter_name]["wavelength_m"].values[0]),
                 "flux_Jy": float(self.df[self.df["sed_filter"] == filter_name]["flux_Jy"].values[0]),
             } for filter_name in self.df["sed_filter"].unique()
         }
@@ -609,7 +610,7 @@ class StarInfoRetriever:
         Dumps `StarInfoRetriever._cache` to a JSON file.
         """
         os.makedirs(cache_dir, exist_ok=True)
-        cache_path = os.path.join(cache_dir, "star_photometry_cache.json")
+        cache_path = os.path.join(cache_dir, "vizier_photometry_cache.json")
         with open(cache_path, "w") as f:
             json.dump(StarInfoRetriever._cache, f, indent=3)
     
@@ -619,7 +620,7 @@ class StarInfoRetriever:
         Loads `StarInfoRetriever._cache` from a JSON file.
         """
         os.makedirs(cache_dir, exist_ok=True)
-        cache_path = os.path.join(cache_dir, "star_photometry_cache.json")
+        cache_path = os.path.join(cache_dir, "vizier_photometry_cache.json")
         if os.path.exists(cache_path):
             with open(cache_path, "r") as f:
                 StarInfoRetriever._cache = json.load(f)
@@ -638,7 +639,7 @@ StarInfoRetriever.load_json()
 
 
 
-def get_photometry_jy(star:str, wavelength_or_filter: float|str, show:bool = False) -> float:
+def get_photometry_jy(star:str, wavelength_or_filter: float|np.ndarray|str, show:bool = False) -> float:
     """
     Convenience function to get the stellar flux (in Jy) at given wavelengths for a given star.
 
@@ -648,7 +649,7 @@ def get_photometry_jy(star:str, wavelength_or_filter: float|str, show:bool = Fal
         Name of the star.
     wavelength_or_filter : float | str
         Wavelength(s) at which to get the stellar flux. In meters.
-        If a string is provided (e.g. `F1500W` or `JWST/MIRI.F1500W`) is will
+        If a string is provided (e.g. `F1500W` or `JWST/MIRI.F1500W`) it will
         be used to load a `SFilter` object (see its documentation for more information).
     show : bool, optional
         Whether to show the photometry plot, by default False.
@@ -658,18 +659,23 @@ def get_photometry_jy(star:str, wavelength_or_filter: float|str, show:bool = Fal
     float
         Stellar flux at the given wavelengths. In Jy.
     """
-    raise NotImplementedError("Due to recent changes in the Vizier API, this function doesn't work anymore.")
-
+    # 1. Load retriever
     retriever = StarInfoRetriever(star)
     
+    # 2. Handle inputs
+    was_scalar = False
     if isinstance(wavelength_or_filter, str):
         sfilter = SFilter(wavelength_or_filter)
         wavelength = sfilter.wl
-    elif isinstance(wavelength_or_filter, u.Quantity):
-        wavelength = wavelength_or_filter.to(u.m).value
-    
-    wavelength = wavelength * u.m
-    flux_jy = retriever.get_photometry(wavelength)
+    else:
+        wavelength = wavelength_or_filter
+        # check wether array or float, and remember it
+        if not isinstance(wavelength, np.ndarray):
+            wavelength = np.array([wavelength], dtype=float)
+            was_scalar = True # we will return a scalar at the end instead of an array
+
+    # 3. Get flux
+    flux_jy = retriever.get_photometry(wavelength) # flux is an array in Jy
 
     if isinstance(wavelength_or_filter, str):
         flux_jy = sfilter.photometry(
@@ -677,22 +683,25 @@ def get_photometry_jy(star:str, wavelength_or_filter: float|str, show:bool = Fal
             flux_jy,
             flux_type="nu"
         )
+    else:
+        if was_scalar:
+            flux_jy = flux_jy[0]
     
     if show:
         retriever.plot(show=False, close=False)
         # add the requested wavelength and retrieved flux
         plt.scatter(
-            wavelength.to(u.micron).value,
-            flux_jy.to(u.Jy).value,
+            wavelength*1e6 if not isinstance(wavelength_or_filter, str) else sfilter.wl_central*1e6, # plot in um
+            flux_jy,
             color="goldenrod",
             marker="+",
             s=100,
-            label=f"Requested Point ({wavelength.to(u.micron).value:.2f} um, {flux_jy.to(u.Jy).value:.2f} Jy)",
+            label=f"Requested Point(s)",
             zorder=200
         )
         plt.legend()
         plt.show()
-    return flux_jy.to(u.Jy).value
+    return flux_jy
 
 
 def plot_photometry_cache() -> None:
@@ -716,7 +725,7 @@ def get_distance_pc(star:str) -> float:
     u.Quantity
         Distance to the star in parsecs.
     """
-    return StarInfoRetriever.get_star_distance_pc(star).to(u.pc).value
+    return StarInfoRetriever.get_star_distance_pc(star)
 
 
 
@@ -826,7 +835,7 @@ if __name__ == "__main__":
     star = "LHS 1140"
     with Message(f"Retrieving photometry for star {cstr(star).green()}"):
         phot = get_photometry_jy(star, "F1130W", show=True)
-        Message.print(f"Photometry at F1130W: {phot.to(u.uJy):.2e} (expected ~ 1.47e+04 uJy at 11.56 um)")
-        phot1156 = get_photometry_jy(star, 11.56 * u.um)
-        Message.print(f"Photometry at 11.56 um: {phot1156.to(u.uJy):.2e} (expected ~ 1.47e+04 uJy at 11.56 um)")
+        Message.print(f"Photometry at F1130W: {phot*1e6:.2e} (expected ~ 1.47e+04 uJy at 11.56 um)")
+        phot1156 = get_photometry_jy(star, 11.56e-6)
+        Message.print(f"Photometry at 11.56 um: {phot1156*1e6:.2e} (expected ~ 1.47e+04 uJy at 11.56 um)")
     
