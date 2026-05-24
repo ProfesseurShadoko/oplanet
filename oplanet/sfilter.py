@@ -286,18 +286,37 @@ class SFilter:
         This is physically closer to the real wavelength of a filter.
         """
         return self._filer_info["wavelength_eff"]
-    
-    @property
-    def normalized_bandwidth(self) -> float:
-        """
-        The normalized bandwidth (in meters).
-        """
 
     @property
     def bandwidth(self) -> float:
         """
-        The bandwidth (in meters)
+        The bandwidth (in meters). To use for counting photons (or electrons, as quantum efficiency
+        is included in the filter profiles). The number of photons for a given flux is:
+        ```
+        N = wl_eff/(hc) * F_lambda * A * t * bandwidth
+        ```
+        with F_lambda the flux density in the filter, `A` the collecting area of the telescope, and `bandwidth` the bandwidth of the filter in m^2.
+        The bandwidth is computed as the integral of the transmission curve over wavelength: `bandwidth = np.trapezoid(self.wl * self.tr, self.wl) / self.wl_eff`.
+
+        The unapproximated number of photons actually depends on the flux at each wavelength:
+        ```
+        N = integral (F_lambda(lambda) * A * t) / (hc/lambda) * tr(lambda) d_lambda
+        ```
+        The formula used here assumes constant flux across the filter.
         """
+        if hasattr(self, "_bandwidth"):
+            return self._bandwidth
+        self._bandwidth = np.trapezoid(self.wl * self.tr, self.wl) / self.wl_eff # divide here for dimensionality reasons
+        return self.bandwidth
+    
+    @property
+    def effective_bandwidth(self) -> float:
+        """
+        How wide the filter is. Not a relevant physical quantity,
+        as some normalization is applied to the filter profile by SVO
+        for this quantity.
+        """
+        return self._filer_info["effective_bandwidth"]
     
 
     @property
@@ -421,26 +440,40 @@ class SFilter:
         )
         return photometry
 
-        if flux_type == "nu":
-            # convert to flux per unit of wavelength
-            flux = flux / wavelengths**2 # don't care about the constant
+    def get_nphotons(
+        self,
+        flux: float,
+        A: float = 1.0,
+        exposure_time: float = 1.0
+    ):
+        """
+        Returns the number of photons (or rather the number of electrons, as quantum
+        efficiency is included in the filter profiles). This is computed as:
+        ```
+        N = lambda0/(hc) * F_lambda(lambda0) * A * bandwidth
+        ```
+        The mean wavelength of the filter is used as `lambda0` (which corresponds to flat sources).
 
-        # let's interpolate the filter profile to the input wavelengths
-        tr_interpolated = np.interp(wavelengths, self.wl, self.tr, left=0, right=0)
+        Parameters
+        ----------
+        flux : float
+            Flux density at the effective wavelength of the filter (in W/m^2/m).
+        A : float
+            Collecting area of the telescope (in m^2).
+        exposure_time : float
+            Exposure time (in seconds).
         
-        match self.detector_type:
-            case "energy_counter":
-                photometry = np.trapezoid(flux * tr_interpolated, wavelengths) / np.trapezoid(tr_interpolated, wavelengths)
-            case "photon_counter":
-                photometry = np.trapezoid(flux * tr_interpolated * wavelengths, wavelengths) / np.trapezoid(tr_interpolated * wavelengths, wavelengths)
-            case _:
-                raise ValueError(f"Unknown detector type: {self.detector_type}. This should not happen. Please check the SVO database for the filter {self.id}.")
-        
-        if flux_type == "nu":
-            #convert back to flux per unit of frequency
-            photometry = photometry * self.wl_pivot**2 # here the omitted c before cancels out
-        
-        return photometry
+        Notes
+        -----
+        As the number of photons is directly proportional to the collecitng area of the telescope and
+        the exposure time, setting them to 1 returns a number of photon per second per square meter.
+        """
+        h = const.h.value
+        c = const.c.value
+        lambda0 = self.wl_eff
+        E_photon = h * c / lambda0 # per unit of wavelength
+        N = flux / E_photon * self.bandwidth * A * exposure_time
+        return N
 
 
     # ------------- #
@@ -458,6 +491,8 @@ class SFilter:
             "Mean wavelength (m)": f"{self.wl_mean:.4e}",
             "Pivot wavelength (m)": f"{self.wl_pivot:.4e}",
             "Effective wavelength (m)": f"{self.wl_eff:.4e}",
+            "Effective bandwidth (m)": f"{self.effective_bandwidth:.4e}",
+            "Bandwidth (m)": f"{self.bandwidth:.4e}",
             "Detector type": self.detector_type
         })
 
@@ -605,15 +640,17 @@ class SFilter:
 
     
 if __name__ == "__main__":
-    #filter = SFilter("F1500W", "JWST")
-    #filter.display()
-    #filter = SFilter.from_id("GAIA/GAIA2.G")
-    #filter.display()
-    #filter = SFilter("F1140C") # should be already downlaoded
-    #filter.display()
-    
 
     miri_filters = SFilter.get_filters("JWST", "MIRI")
     SFilter.plot_all([filter.id for filter in miri_filters])
     SFilter.download(["2MASS", "WISE", "GAIA"])
     SFilter.plot_all("WISE")
+
+    # check nphotons calculation
+    sfilter = SFilter("F1500W")
+    sfilter.display()
+    flux = 1e-18 # W/m^2/m
+    A = 25 # m^2
+    t = 3600 # s
+    n_photons = sfilter.get_nphotons(flux, A, t)
+    Message(f"Number of photons for a flux of {flux:.2e} W/m^2/m: {n_photons:.2e}", "#")
