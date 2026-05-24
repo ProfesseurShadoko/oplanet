@@ -18,20 +18,6 @@ pip install oplanet
 pip install "git+https://github.com/ProfesseurShadoko/oplanet.git"
 ```
 
-
-## Requirements
-
-Dependencies are listed in `requirements.txt`:
-
-- `oakley`
-- `numpy`
-- `pandas`
-- `astroquery`
-- `astropy`
-- `scipy`
-- `matplotlib`
-- `requests`
-
 ## Quick examples
 
 For a guided walkthrough with explanations and runnable cells, see [examples.ipynb](examples.ipynb).
@@ -67,7 +53,7 @@ print(system.b.orbital_period_yrs)
 ### 3. One-line import for common API
 
 ```python
-from oplanet import NSystem, parse_star_name, get_star_aliases, get_photometry_jy, SFilter
+from oplanet import NSystem, get_star_aliases, get_photometry_jy, SFilter
 ```
 
 

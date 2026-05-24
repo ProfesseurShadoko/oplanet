@@ -20,6 +20,8 @@ dependencies = [
   "astropy",
   "scipy",
   "matplotlib",
+  "requests",
+  "beautifulsoup4"
 ]
 keywords = ["astronomy", "exoplanets", "nasa", "astrophysics"]
 classifiers = [
