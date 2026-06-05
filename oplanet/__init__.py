@@ -1,6 +1,6 @@
 
 
-__version__ = "1.4.6"
+__version__ = "1.4.7"
 from .oconfig import oplanet_config, oplanet_temp_config, reset_config, update_default_config
 
 # ----------------------- #
@@ -27,8 +27,4 @@ for facility in ["2MASS", "WISE", "GAIA", "JWST"]:
 # !-- NASA Exoplanet Archive --! #
 # ------------------------------ #
 
-from .data_loaders import check_if_old
-check_if_old("nasa")
-#check_if_old("eu")
 from .nsystem import NSystem
-#from .esystem import ESystem

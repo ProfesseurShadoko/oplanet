@@ -6,7 +6,7 @@
 
 import oakley
 from .star_utils import get_star_aliases, parse_star_name,  get_star_name
-from .data_loaders import get_database, refresh_data
+from .data_loaders import get_database, refresh_data, check_if_old
 from .oconfig import oplanet_temp_config, reset_config
 
 import numpy as np
@@ -32,6 +32,7 @@ class NSystem:
 
     _prefix = "sy" # defines what is outputtd by "reference"
     _config_key = "system"
+    _check_if_old_called = False
 
 
     # ---------------------- #
@@ -61,6 +62,17 @@ class NSystem:
         df_star_name : str
             The name of the star as it appears in the dataframe.
         """
+        # 1. Check wether the archive file exists
+        try:
+            db = get_database("nasa")
+        except AssertionError:
+            Message(f"NASA Exoplanet Archive file not found. Downloading it now.", "!")
+            refresh_data("nasa")
+            db = get_database("nasa")
+
+        # 2. Check wether the archive file is old
+        self._check_if_old()
+
         assert isinstance(star_name, (str, pd.DataFrame)), f"Invalid type for star_name: {type(star_name)}. Must be a string or a pandas dataframe."
 
         if isinstance(star_name, str):
@@ -73,8 +85,8 @@ class NSystem:
                 self.star_name, *[star_alias for star_alias in self.star_aliases if star_alias != star_name]
             ]:
                 self.df_star_name = alias
-                self.df = get_database("nasa")[
-                    get_database("nasa")["hostname"] == alias
+                self.df =db[
+                    db["hostname"] == alias
                 ].reset_index(drop=True).copy(deep=True)
                 if len(self.df) > 0:
                     break
@@ -124,6 +136,13 @@ class NSystem:
         new_system.df = self.df.reset_index(drop=True).copy(deep=True)
         new_system._chosen_row = self._chosen_row
         return new_system
+    
+    @staticmethod
+    def _check_if_old():
+        if NSystem._check_if_old_called:
+            return
+        NSystem._check_if_old_called = True
+        check_if_old("nasa")
     
     @staticmethod
     def refresh():

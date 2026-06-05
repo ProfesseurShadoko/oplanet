@@ -109,6 +109,9 @@ def download_eu_exoplanet_catalog():
 # !-- Refresh --! #
 # --------------- #
 
+database_eu = None
+database_nasa = None
+
 def refresh_data(source: Literal["eu", "nasa"]):
     # 1. Delete old files
     archive_file = archive_filename(source)
@@ -121,6 +124,13 @@ def refresh_data(source: Literal["eu", "nasa"]):
         download_nasa_exoplanet_archive()
     elif source == "eu":
         download_eu_exoplanet_catalog()
+    
+    # 3. Clear cache
+    global database_eu, database_nasa
+    if source == "nasa":
+        database_nasa = None
+    elif source == "eu":
+        database_eu = None
 
 def check_if_old(source: Literal["eu", "nasa"], max_age_days: int = 50):
     archive_date = get_archive_date(source)
@@ -133,9 +143,6 @@ def check_if_old(source: Literal["eu", "nasa"], max_age_days: int = 50):
 # ------------------- #
 # !-- Data Loader --! #
 # ------------------- #
-
-database_eu = None
-database_nasa = None
 
 def get_database(source: Literal["eu", "nasa"]) -> pd.DataFrame:
     """
