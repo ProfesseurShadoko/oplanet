@@ -404,6 +404,7 @@ class SFilter:
             is given in units of flux density per unit frequency (e.g. W/m^2/Hz). This is important for the photometry calculation, as it determines
             how the flux values are weighted by the filter transmission curve.
             Returned flux is in same units as input flux.
+            
         Notes
         -----
         The photometry is computed in two different ways, depending on the
@@ -428,14 +429,21 @@ class SFilter:
 
         The type of detector is specified in the SVO database.
         """
+        
+        # 1. Interpolate input spectrum on filter wavelengths
+        flux = np.interp(self.wl, wavelengths, flux, left=0, right=0)
+        wavelengths = self.wl
+        
+        # 2. Define the kernels
         frequency_conversion_kernel = const.c.value / wavelengths**2 if flux_type == "nu" else 1
         detector_type_kernel = wavelengths if self.detector_type == "photon_counter" else 1
-        tr = np.interp(wavelengths, self.wl, self.tr, left=0, right=0)
+        
+        # 3. Integrate
         photometry = np.trapezoid(
-            flux * tr * frequency_conversion_kernel * detector_type_kernel,
+            flux * self.tr * frequency_conversion_kernel * detector_type_kernel,
             wavelengths
         ) / np.trapezoid(
-            tr * frequency_conversion_kernel * detector_type_kernel,
+            self.tr * frequency_conversion_kernel * detector_type_kernel,
             wavelengths
         )
         return photometry
