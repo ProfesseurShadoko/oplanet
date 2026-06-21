@@ -447,42 +447,6 @@ class SFilter:
             wavelengths
         )
         return photometry
-    
-    def weights(self, wavelength: float | np.ndarray) -> float | np.ndarray:
-        """
-        Let's consider a spectrum F(lambda). TO get the photometry, on needs to
-        compute: `F = int F(lambda) * tr(lambda) d_lambda / int tr(lambda) d_lambda`.
-
-        Any given spectrum will however be discret, thus the integral becomes:
-        `F = trapezoid(F(lambda_i) * tr(lambda_i) / int tr(lambda) d_lambda)`.
-        or rewritten differently:
-        ```
-        F = trapezoid((F_i * w_i), lambda_i)
-        ```
-        with `w_i = tr(lambda_i) / int tr(lambda) d_lambda`. This function returns `w_i`.
-
-        Parameters
-        ----------
-        wavelength : float or np.ndarray
-            Wavelength(s) at which to compute the transmission (in meters).
-            
-        Returns
-        -------
-        float or np.ndarray
-            Weights at the specified wavelength(s).
-
-        Examples
-        --------
-        ```python
-        wl, flux_jy = get_spectrum() # get a spectrum
-        weights = SFilter("F1140C").weights(wl)
-        photometry_jy = np.trapezoid(flux_jy * weights, wl) # compute the photometry
-        ```
-        Do not use these weights with `sum` only to compute the integral, as the wavelength
-        quadrature would not be taken into account. Use `np.trapezoid` instead.
-        """
-        weights = self.tr / np.trapezoid(self.tr, self.wl)
-        return np.interp(wavelength, self.wl, weights, left=0, right=0)
 
     def get_nphotons(
         self,
@@ -518,6 +482,89 @@ class SFilter:
         E_photon = h * c / lambda0 # per unit of wavelength
         N = flux / E_photon * self.bandwidth * A * exposure_time
         return N
+    
+
+    # ------------------- #
+    # !-- Convolution --! #
+    # ------------------- #
+
+    def weights(self, wavelength: float | np.ndarray) -> float | np.ndarray:
+        """
+        Let's consider a spectrum F(lambda). TO get the photometry, on needs to
+        compute: `F = int F(lambda) * tr(lambda) d_lambda / int tr(lambda) d_lambda`.
+
+        Any given spectrum will however be discret, thus the integral becomes:
+        `F = trapezoid(F(lambda_i) * tr(lambda_i) / int tr(lambda) d_lambda)`.
+        or rewritten differently:
+        ```
+        F = trapezoid((F_i * w_i), lambda_i)
+        ```
+        with `w_i = tr(lambda_i) / int tr(lambda) d_lambda`. This function returns `w_i`.
+
+        Parameters
+        ----------
+        wavelength : float or np.ndarray
+            Wavelength(s) at which to compute the transmission (in meters).
+            
+        Returns
+        -------
+        float or np.ndarray
+            Weights at the specified wavelength(s).
+
+        Examples
+        --------
+        ```python
+        wl, flux_jy = get_spectrum() # get a spectrum
+        weights = SFilter("F1140C").weights(wl)
+        photometry_jy = np.trapezoid(flux_jy * weights, wl) # compute the photometry
+        ```
+        Do not use these weights with `sum` only to compute the integral, as the wavelength
+        quadrature would not be taken into account. Use `np.trapezoid` instead.
+        """
+        weights = self.tr / np.trapezoid(self.tr, self.wl)
+        return np.interp(wavelength, self.wl, weights, left=0, right=0)
+    
+    def optimal_support(self, N: int = 10) -> np.ndarray:
+        """
+        Returns the optimal wavelengths to consider to best sample from the filter
+        transmission curve. In other words, the question is the following. I want to compute
+        F = int F(lambda) tr(lambda) d_lambda, and i need to discretize it on `N` points.
+        What are the optimal wavelengths to consider to best sample the filter transmission curve?
+
+        We will use transmission-weighted centroids of equal-area binning:
+        ```
+        lambda_i = int_bin lambda * tr(lambda) d_lambda / int tr(lambda) d_lambda
+        ```
+
+        Parameters
+        ----------
+        N : int
+            Number of points to consider. The optimal wavelengths will be returned as an array of size `N`.
+        
+        Returns
+        -------
+        np.ndarray
+            Optimal wavelengths to consider to best sample the filter transmission curve (in meters).
+        """
+        # 1. Compute the cumulative distribution function (CDF) of the filter transmission curve
+        from scipy.integrate import cumulative_trapezoid
+        cdf = cumulative_trapezoid(self.tr, self.wl, initial=0)
+        cdf = cdf / cdf[-1]
+
+        # 2. Compute the bins
+        wavelength_bins = np.interp(np.linspace(0, 1, N+1), cdf, self.wl)
+
+        # 3. Comptue the central wavelengths of each bin
+        optimal_wavelengths = []
+        for i in range(N):
+            wl_min = wavelength_bins[i]
+            wl_max = wavelength_bins[i+1]
+            wl_bin = self.wl[(self.wl >= wl_min) & (self.wl <= wl_max)]
+            tr_bin = self.tr[(self.wl >= wl_min) & (self.wl <= wl_max)]
+            opt_wl = np.trapezoid(wl_bin * tr_bin, wl_bin) / np.trapezoid(tr_bin, wl_bin)
+            optimal_wavelengths.append(opt_wl)
+
+        return np.array(optimal_wavelengths)
 
 
     # ------------- #

@@ -1,6 +1,6 @@
 
 
-__version__ = "1.4.9"
+__version__ = "1.4.10"
 from .oconfig import oplanet_config, oplanet_temp_config, reset_config, update_default_config
 
 # ----------------------- #
