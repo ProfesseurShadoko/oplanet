@@ -524,7 +524,7 @@ class SFilter:
         weights = self.tr / np.trapezoid(self.tr, self.wl)
         return np.interp(wavelength, self.wl, weights, left=0, right=0)
     
-    def optimal_support(self, N: int = 10) -> np.ndarray:
+    def support(self, N: int = 10) -> np.ndarray:
         """
         Returns the optimal wavelengths to consider to best sample from the filter
         transmission curve. In other words, the question is the following. I want to compute
