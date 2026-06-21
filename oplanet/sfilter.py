@@ -447,6 +447,42 @@ class SFilter:
             wavelengths
         )
         return photometry
+    
+    def weights(self, wavelength: float | np.ndarray) -> float | np.ndarray:
+        """
+        Let's consider a spectrum F(lambda). TO get the photometry, on needs to
+        compute: `F = int F(lambda) * tr(lambda) d_lambda / int tr(lambda) d_lambda`.
+
+        Any given spectrum will however be discret, thus the integral becomes:
+        `F = trapezoid(F(lambda_i) * tr(lambda_i) / int tr(lambda) d_lambda)`.
+        or rewritten differently:
+        ```
+        F = trapezoid((F_i * w_i), lambda_i)
+        ```
+        with `w_i = tr(lambda_i) / int tr(lambda) d_lambda`. This function returns `w_i`.
+
+        Parameters
+        ----------
+        wavelength : float or np.ndarray
+            Wavelength(s) at which to compute the transmission (in meters).
+            
+        Returns
+        -------
+        float or np.ndarray
+            Weights at the specified wavelength(s).
+
+        Examples
+        --------
+        ```python
+        wl, flux_jy = get_spectrum() # get a spectrum
+        weights = SFilter("F1140C").weights(wl)
+        photometry_jy = np.trapezoid(flux_jy * weights, wl) # compute the photometry
+        ```
+        Do not use these weights with `sum` only to compute the integral, as the wavelength
+        quadrature would not be taken into account. Use `np.trapezoid` instead.
+        """
+        weights = self.tr / np.trapezoid(self.tr, self.wl)
+        return np.interp(wavelength, self.wl, weights, left=0, right=0)
 
     def get_nphotons(
         self,
