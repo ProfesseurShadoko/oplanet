@@ -120,7 +120,7 @@ class SFilter:
         if len(matching_data) > 1:
             raise ValueError(f"Multiple filters found in cache matching the specified criteria (name={self._filter_name}, facility={self._facility}, instrument={self._instrument}). Please specify more precise criteria. Matching filters: {matching_data}")
         elif len(matching_data) == 1:
-            self._filer_info = cache[matching_data[0]]
+            self._filter_info = cache[matching_data[0]]
             return
         if not _recursion:
             raise ValueError(f"Filter not found in SVO. Please check that the filter exists in the SVO database and that the specified criteria are correct (name={self._filter_name}, facility={self._facility}, instrument={self._instrument}).")
@@ -227,14 +227,14 @@ class SFilter:
         """
         Name of the filter (e.g. "F1140C").
         """
-        return self._filer_info["filter"]
+        return self._filter_info["filter"]
 
     @property
     def id(self) -> str:
         """
         Unique SVO identifier for the filter (e.g. "JWST/MIRI.F1500W").
         """
-        return self._filer_info["filter_id"]
+        return self._filter_info["filter_id"]
 
     def __str__(self) -> str:
         return self.name
@@ -268,7 +268,7 @@ class SFilter:
         Mean wavelength of the filter (in meters). This is the wavelength that corresponds
         to a weighted average of the transmission curve.
         """
-        return self._filer_info["wavelength_mean"]
+        return self._filter_info["wavelength_mean"]
 
     @property
     def wl_pivot(self) -> float:
@@ -276,7 +276,7 @@ class SFilter:
         Pivot wavelength of the filter (in meters). This is the wavelength to use when 
         converting between flux density per unit wavelength and flux density per unit frequency.
         """
-        return self._filer_info["wavelength_pivot"]
+        return self._filter_info["wavelength_pivot"]
 
     @property
     def wl_eff(self) -> float:
@@ -285,7 +285,7 @@ class SFilter:
         to a weighted average of the transmission curve mulitplied by an effective stellar spectrum.
         This is physically closer to the real wavelength of a filter.
         """
-        return self._filer_info["wavelength_eff"]
+        return self._filter_info["wavelength_eff"]
 
     @property
     def bandwidth(self) -> float:
@@ -316,7 +316,7 @@ class SFilter:
         as some normalization is applied to the filter profile by SVO
         for this quantity.
         """
-        return self._filer_info["effective_bandwidth"]
+        return self._filter_info["effective_bandwidth"]
     
 
     @property
@@ -324,21 +324,21 @@ class SFilter:
         """
         Full width at half maximum (FWHM) of the filter (in meters).
         """
-        return self._filer_info["fwhm"]
+        return self._filter_info["fwhm"]
     
     @property
     def wl_min(self) -> float:
         """
         Minimum wavelength (reached when transmission is 1% of maximum transmission) of the filter (in meters).
         """
-        return self._filer_info["wavelength_min"]
+        return self._filter_info["wavelength_min"]
 
     @property
     def wl_max(self) -> float:
         """
         Maximum wavelength (reached when transmission is 1% of maximum transmission) of the filter (in meters).
         """
-        return self._filer_info["wavelength_max"]
+        return self._filter_info["wavelength_max"]
     
     @property
     def wl_central(self) -> float:
@@ -346,14 +346,14 @@ class SFilter:
         Central wavelength of the filter (in meters). This is the (unweighted)
         middle of the FWHM of the filter. This is physically not very meaningfull.
         """
-        return self._filer_info["wavelength_central"]
+        return self._filter_info["wavelength_central"]
     
     @property
     def wl_peak(self) -> float:
         """
         Peak wavelength of the filter (in meters). This is the wavelength at which the transmission is maximum.
         """
-        return self._filer_info["wavelength_peak"]
+        return self._filter_info["wavelength_peak"]
     
     @property
     def detector_type(self) -> Literal["photon_counter", "energy_counter"]:
@@ -361,7 +361,7 @@ class SFilter:
         Type of detector associated with the filter. This is important for photometry calculations.
         It can be either "photon_counter" or "energy_counter".
         """
-        return self._filer_info["detector_type"]
+        return self._filter_info["detector_type"]
 
 
     # -------------------- #
@@ -373,7 +373,7 @@ class SFilter:
         """
         Wavelengths of the transmission curve (in meters).
         """
-        return np.array(self._filer_info["wl"])
+        return np.array(self._filter_info["wl"])
     
     @property
     def tr(self) -> np.ndarray:
@@ -382,12 +382,28 @@ class SFilter:
         For a given wavelength, the transmission value represents the fraction
         of incoming light at that wavelength that is transmitted through the filter.
         """
-        return np.array(self._filer_info["tr"])
+        return np.array(self._filter_info["tr"])
 
 
     # ------------------ #
     # !-- Photometry --! #
     # ------------------ #
+
+    @property
+    def vega_zeropoint_jy(self) -> float:
+        """
+        Returns the zero point of the filter in Jy. Usefull to convert
+        between magnitudes and fluxes.
+        """
+        # 1. Check that its indeed Vega that was used as the zero point
+        assert self._filter_info["mag_sys"] == "Vega", f"Filter {self.name} does not use Vega as the zero point. It uses {self._filter_info['mag_sys']} instead. This is unexpected."
+        return self._filter_info["zero_point_jy"]
+    
+    def mag_to_jy(self, mag: float) -> float:
+        """
+        Convert a magnitude in the present filter to a flux in Jy using the filter's zero point.
+        """
+        return self.vega_zeropoint_jy * 10**(-mag/2.5)
 
     def photometry(self, wavelengths: np.ndarray, flux: np.ndarray, flux_type:Literal["lambda", "nu"]) -> float:
         """
@@ -577,8 +593,8 @@ class SFilter:
         """
         Message(f"Filter {cstr(self.name):y} properties:").list({
             "ID": self.id,
-            "Facility": self._filer_info["facility"],
-            "Instrument": self._filer_info["instrument"],
+            "Facility": self._filter_info["facility"],
+            "Instrument": self._filter_info["instrument"],
             "Mean wavelength (m)": f"{self.wl_mean:.4e}",
             "Pivot wavelength (m)": f"{self.wl_pivot:.4e}",
             "Effective wavelength (m)": f"{self.wl_eff:.4e}",

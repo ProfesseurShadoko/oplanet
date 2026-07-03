@@ -116,14 +116,25 @@ def refresh_data(source: Literal["eu", "nasa"]):
     # 1. Delete old files
     archive_file = archive_filename(source)
     if archive_file is not None:
+        # 1. Save the file in case the rest fails, so that
+        # we can restore it later
+        file_checkpoint = open(os.path.join(data_folder, archive_file), "rb").read()
         os.remove(os.path.join(data_folder, archive_file))
         Message(f"Deleted {os.path.basename(archive_file)}.", "?")
     
     # 2. Download new file
-    if source == "nasa":
-        download_nasa_exoplanet_archive()
-    elif source == "eu":
-        download_eu_exoplanet_catalog()
+    try:
+        if source == "nasa":
+            download_nasa_exoplanet_archive()
+        elif source == "eu":
+            download_eu_exoplanet_catalog()
+    except Exception as e:
+        # If download fails, restore the old file
+        if archive_file is not None:
+            with open(os.path.join(data_folder, archive_file), "wb") as f:
+                f.write(file_checkpoint)
+            Message(f"Restored {os.path.basename(archive_file)}.", "?")
+        raise e
     
     # 3. Clear cache
     global database_eu, database_nasa
