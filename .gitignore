@@ -7,3 +7,4 @@ dist
 *.csv
 *.json
 *.egg-info
+!**/evolutionary_models/**

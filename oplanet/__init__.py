@@ -28,3 +28,10 @@ for facility in ["2MASS", "WISE", "GAIA", "JWST"]:
 # ------------------------------ #
 
 from .nsystem import NSystem
+
+
+# -------------------------- #
+# !-- Evolutionary Grids --! #
+# -------------------------- #
+
+from .einversion import EInversion

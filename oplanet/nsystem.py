@@ -33,6 +33,7 @@ class NSystem:
     _prefix = "sy" # defines what is outputtd by "reference"
     _config_key = "system"
     _check_if_old_called = False
+    _freeze_rows = False
 
 
     # ---------------------- #
@@ -256,6 +257,7 @@ class NSystem:
         if properties is not None:
             # check that it corresponds to property names and integer values
             def safe_get(obj, path:str) -> bool:
+                NSystem._freeze_rows = True
                 try:
                     for attr in path.split("."):
                         obj = getattr(obj, attr)
@@ -263,12 +265,13 @@ class NSystem:
                     return True
                 except:
                     return False
-                
+                finally:
+                    NSystem._freeze_rows = False
+            
             for prop, value in properties.items():
                 assert isinstance(prop, str), f"Invalid property name: '{prop}'. Must be a string."
                 assert isinstance(value, int), f"Invalid property value: '{value}' for property '{prop}'. Must be an integer."
                 assert safe_get(self, prop), f"Invalid property name: '{prop}'. Must be a valid property of the NSystem or its subclasses. Current class: {self.__class__.__name__}."
-
             oplanet_temp_config[self._config_key]["properties"] = properties
 
         if fallback is not None:
@@ -282,6 +285,7 @@ class NSystem:
         if references is not None or properties is not None or fallback is not None or order_authors is not None:
             self._choose_row() # choose again, based on the updated preferences
     
+
     def add_reference_priority(
         self,
         author:str,
@@ -335,7 +339,8 @@ class NSystem:
         weight : int
             The weight to apply to this property when choosing the row. Must be an integer.
         """
-        current_properties = oplanet_temp_config[self._config_key]["properties"]
+        import copy
+        current_properties = copy.deepcopy(oplanet_temp_config[self._config_key]["properties"])
         current_properties[property_name] = weight
         self.set_config(properties=current_properties)
 
@@ -397,6 +402,7 @@ class NSystem:
         oplanet_temp_config[self._config_key]["fallback"] = False
 
         def safe_get(obj, path:str) -> bool:
+            NSystem._freeze_rows = True
             try:
                 for attr in path.split("."):
                     obj = getattr(obj, attr)
@@ -404,6 +410,8 @@ class NSystem:
                 return obj
             except:
                 return np.nan
+            finally:
+                NSystem._freeze_rows = False
             
         def score_row(row:int) -> tuple:
             self._chosen_row = row
@@ -953,11 +961,11 @@ class NSystem:
         Returns a new NSystem object with only the columns relative to the planet with the given letter.
         """
         out = self.copy()
-        # match pl_letter
-        out.df = out.df[out.df["pl_letter"] == planet_letter].reset_index(drop=True)
-        if len(out.df) == 0:
-            raise ValueError(f"Planet with letter '{planet_letter}' not found in the system.")
-        return NPlanet(out)
+        out = NPlanet(out)
+        if not self._freeze_rows:
+            out._clean(planet_letter)
+            out._choose_row()
+        return out
 
     @property
     def b(self) -> "NPlanet":
@@ -1015,7 +1023,7 @@ class NStar(NSystem):
         self.star_name = osystem.star_name
         self.star_aliases = osystem.star_aliases
         self.df_star_name = osystem.df_star_name
-        self._choose_row()
+        self._chosen_row = osystem._chosen_row
 
     @property
     def age_myr(self) -> np.ndarray:
@@ -1204,7 +1212,12 @@ class NPlanet(NSystem):
         self.star_name = osystem.star_name
         self.star_aliases = osystem.star_aliases
         self.df_star_name = osystem.df_star_name
-        self._choose_row()
+        #self._choose_row()
+    
+    def _clean(self, planet_letter:str):
+        self.df = self.df[self.df["pl_letter"] == planet_letter].reset_index(drop=True)
+        if len(self.df) == 0:
+            raise ValueError(f"Planet with letter '{planet_letter}' not found in the system.")
 
     
     # -------------------- #
@@ -1311,7 +1324,9 @@ class NPlanet(NSystem):
         out = self.copy()
         # keep only the chosen row
         out.df = self.df.iloc[[self._chosen_row]].reset_index(drop=True).copy(deep=True)
-        return NStar(out)
+        star = NStar(out)
+        star._chosen_row = 0
+        return star
 
     @property
     def system(self) -> NSystem:
