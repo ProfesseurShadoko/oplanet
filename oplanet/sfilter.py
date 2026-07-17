@@ -256,6 +256,8 @@ class SFilter:
         the one matching the specified filter ID.
 
         This is equivalent to directly creating an SFilter instance with the filter name, facility and instrument.
+
+        This is actually depreciated, you can pass the full id directly to the SFilter constructor.
         """
         filter_name = filter_id.split(".")[-1]
         facility = filter_id.split("/")[0]
