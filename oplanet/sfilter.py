@@ -63,6 +63,11 @@ class SFilter:
         (e.g. photomatry) should be unaffected. For anything related to the absolute transmission
         (e.g. photon count), use data from `pandeia` instead.
         """
+        if "/" in filter_name and "." in filter_name:
+            facility = filter_name.split("/")[0]
+            instrument = filter_name.split("/")[1].split(".")[0]
+            filter_name = filter_name.split(".")[-1]
+            
         self._filter_name = filter_name
         self._facility = facility
         self._instrument = instrument
