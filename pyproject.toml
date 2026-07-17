@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oplanet"
-version = "1.4.11"
+version = "2.0.0"
 description = "Lightweight Python wrapper around the NASA Exoplanet Archive."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,7 +21,8 @@ dependencies = [
   "scipy",
   "matplotlib",
   "requests",
-  "beautifulsoup4"
+  "beautifulsoup4",
+  "huggingface_hub"
 ]
 keywords = ["astronomy", "exoplanets", "nasa", "astrophysics"]
 classifiers = [

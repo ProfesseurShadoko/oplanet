@@ -12,17 +12,20 @@ import numpy as np
 from scipy.interpolate import LinearNDInterpolator
 from typing import Literal
 
+model_folder = os.path.join(os.path.dirname(__file__), "data", "evolutionary_models")
+os.makedirs(model_folder, exist_ok=True)
 
 # ------------- #
 # !-- Files --! #
 # ------------- #
 
-model_folder = os.path.join(os.path.dirname(__file__), "evolutionary_models")
-atmo_csv = os.path.join(model_folder, "atmo_2020_grid.csv")
-hades_csv = os.path.join(model_folder, "hades_2026_grid.csv")
-linder_csv = os.path.join(model_folder, "linder_2019_grid.csv")
-sonora_csv = os.path.join(model_folder, "sonora_2021_grid.csv")
+atmo_csv = os.path.join(model_folder, "atmo_2020_grid_oplanet.csv")
+hades_csv = os.path.join(model_folder, "hades_2026_grid_oplanet.csv")
+linder_csv = os.path.join(model_folder, "linder_2019_grid_oplanet.csv")
+sonora_csv = os.path.join(model_folder, "sonora_2021_grid_oplanet.csv")
 
+if not all(os.path.exists(f) for f in [atmo_csv, hades_csv, linder_csv, sonora_csv]):
+    Message("Evolutionnary files are missing. Please run `EInversion.download()` or `python -m oplanet.einversion` to download them.", "!")
 
 # -------------------- #
 # !-- Interpolator --! #
@@ -431,22 +434,49 @@ class EInversion:
         return sample
 
 
+    # ---------------- #
+    # !-- Download --! #
+    # ---------------- #
+
+    @staticmethod
+    def download():
+        """
+        Downloads (and overwrites) the local evolutionnary models, so that they can be used.
+        """
+        from huggingface_hub import HfApi, hf_hub_download
+        import time
+        REPOSITORY_ID = "ProfShadoko/mirix"
+        api = HfApi()
+
+        # 1. List all files in the repository (there is a bunch of stuff)
+        files = api.list_repo_files(REPOSITORY_ID, repo_type="dataset")
+        files = [f for f in files if f.endswith("grid_oplanet.csv")]
+
+        Message("Files to download:").list(files)
+
+        # 2. Download them
+        with Task("Downloading files..."):
+            for f in files:
+                time.sleep(1)
+                hf_hub_download(
+                    repo_id = REPOSITORY_ID,
+                    repo_type = "dataset",
+                    filename = f,
+                    local_dir = model_folder,
+                    force_download = True
+                )
+
+
+
+
+
+
 if __name__ == "__main__":
-    age = 5000
-    met = 0
-    mass_array = np.linspace(1, 30, 100)
 
-    from matplotlib import pyplot as plt
+    Message.title("Download")
+    EInversion.download()
 
-    plt.figure(figsize=(12, 5))
+    Message.title("Test")
     for model in ["hades", "atmo", "linder", "sonora"]:
         xi = EInversion(model=model, scheme="m,a,z -> f1500w")
-        f1500w = xi(mass_array, age, met)
-        plt.plot(mass_array, f1500w[0], label=model.upper())
-        plt.fill_between(mass_array, f1500w[0] + f1500w[1], f1500w[0] + f1500w[2], alpha=0.2)
-    plt.xlabel("Mass [MJup]")
-    plt.ylabel("F1500W [Jy]")
-    plt.title(f"F1500W vs Mass for Age={age} Myr and Metallicity={met} dex")
-    plt.legend()
-    plt.grid()
-    plt.show()
+        print(xi)
