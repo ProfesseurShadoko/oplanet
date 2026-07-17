@@ -164,23 +164,35 @@ class EInversion:
         sigma_upper : np.ndarray
             Upper prediction of the output parameter (84th percentile - median).
         sigma_lower : np.ndarray
-            Lower prediction of the output parameter (16th percentile - median).
+            Lower prediction of the output parameter (16th percentile - median), hence is negative.
         
         Uncertainties are only available in the HADES grid. Otherwise,
         the lower and upper predictions will be zero.
         """
         # 1. Check that the number of inputs is correct
         assert len(inputs) == len(self._init_inputs), f"Number of inputs must be {len(self._init_inputs)}, got {len(inputs)}."
+        scalar_output = all(np.ndim(inp) == 0 for inp in inputs)
 
         # 2. Create a dataframe from the inputs
         inputs = [np.atleast_1d(inp) for inp in inputs]
+        # broadcast all shapes together
+        inputs = np.broadcast_arrays(*inputs)
+        output_shape = inputs[0].shape
+        inputs = [inp.flatten() for inp in inputs]
+        
         df = pd.DataFrame({col: inp for col, inp in zip(self._init_inputs, inputs)})
 
         # 3. Predict the output parameter
         y_median, y_lower, y_upper = self.predict(df)
+        y_median = y_median.reshape(output_shape)
+        y_lower = y_lower.reshape(output_shape)
+        y_upper = y_upper.reshape(output_shape)
 
         # 4. Return the median and the uncertainties
-        return y_median, y_upper - y_median, y_lower - y_median
+        if scalar_output:
+            return y_median.item(), y_upper.item() - y_median.item(), y_lower.item() - y_median.item()
+        else:
+            return y_median, y_upper - y_median, y_lower - y_median
     
     @staticmethod
     def sample(
