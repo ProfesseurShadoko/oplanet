@@ -225,6 +225,68 @@ class EInversion:
             return EInversion.split_laplace(median, median + sigma_lower, median + sigma_upper)
         elif distribution == "uniform":
             return np.random.uniform(median + sigma_lower, median + sigma_upper)
+        
+    @staticmethod
+    def sort(
+        median: np.ndarray,
+        sigma_upper: np.ndarray,
+        sigma_lower: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Sorts the median array and updates uncertainties accordingly.
+
+        Parameters
+        ----------
+        median : np.ndarray
+            Array of median values.
+        sigma_upper : np.ndarray
+            Array of upper uncertainties (84th percentile - median), positive.
+        sigma_lower : np.ndarray
+            Array of lower uncertainties (16th percentile - median), negative.
+        
+        Returns
+        -------
+        median_sorted : np.ndarray
+            Sorted array of median values (we assume that input parameters were sorted, and that you want
+            the output parameter to be monotonic w.r.t the input parameters).
+        sigma_upper_sorted : np.ndarray
+            Updated array of upper uncertainties corresponding to the sorted median values.
+            The original value (unsorted median) is within the new uncertainty range.
+        sigma_lower_sorted : np.ndarray
+            Updated array of lower uncertainties corresponding to the sorted median values.
+            The original value (unsorted median) is within the new uncertainty range.
+        """
+        # 0. Leave nan values untouched
+        nan_mask = np.isnan(median)
+
+        # 1. Get the quantiles
+        q16 = median + sigma_lower
+        q84 = median + sigma_upper
+
+        median_valid = median[~nan_mask]
+        q16_valid = q16[~nan_mask]
+        q84_valid = q84[~nan_mask]
+
+        # 2. Get sorting indices for the median
+        sort_idx = np.argsort(median_valid)
+        median_sorted = median_valid[sort_idx]
+        q16_sorted = q16_valid[sort_idx]
+        q84_sorted = q84_valid[sort_idx]
+
+        # 3. Update quantiles to ensure that the original value is within the new uncertainty range
+        q16_sorted = np.min([q16_sorted, median_sorted, median_valid], axis=0)
+        q84_sorted = np.max([q84_sorted, median_sorted, median_valid], axis=0)
+
+        # 4. Reinsert nan values
+        median_sorted_full = np.full_like(median, np.nan)
+        q16_sorted_full = np.full_like(median, np.nan)
+        q84_sorted_full = np.full_like(median, np.nan)
+        median_sorted_full[~nan_mask] = median_sorted
+        q16_sorted_full[~nan_mask] = q16_sorted
+        q84_sorted_full[~nan_mask] = q84_sorted
+
+        return median_sorted_full, q84_sorted_full - median_sorted_full, q16_sorted_full - median_sorted_full
+
 
 
 
