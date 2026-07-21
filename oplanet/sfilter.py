@@ -406,11 +406,17 @@ class SFilter:
         assert self._filter_info["mag_sys"] == "Vega", f"Filter {self.name} does not use Vega as the zero point. It uses {self._filter_info['mag_sys']} instead. This is unexpected."
         return self._filter_info["zero_point_jy"]
     
-    def mag_to_jy(self, mag: float) -> float:
+    def mag2jy(self, mag: float) -> float:
         """
         Convert a magnitude in the present filter to a flux in Jy using the filter's zero point.
         """
         return self.vega_zeropoint_jy * 10**(-mag/2.5)
+
+    def jy2mag(self, flux_jy: float) -> float:
+        """
+        Convert a flux in Jy to a magnitude in the present filter using the filter's zero point.
+        """
+        return -2.5 * np.log10(flux_jy / self.vega_zeropoint_jy)
 
     def photometry(self, wavelengths: np.ndarray, flux: np.ndarray, flux_type:Literal["lambda", "nu"]) -> float:
         """
