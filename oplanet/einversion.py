@@ -362,9 +362,10 @@ class EInversion:
 
         for i, col in enumerate(self.inputs):
             if col != "metallicity_solar_dex":
-                mask = inputs[i] > 0
-                inputs[i][mask] = np.log(inputs[i][mask])
-                inputs[i][~mask] = np.nan
+                input = inputs[i]
+                mask = input > 0
+                inputs[i] = np.full_like(input, np.nan, dtype=np.float64)
+                inputs[i][mask] = np.log(input[mask])
         output = np.log(output) if self.output != "metallicity_solar_dex" else output
 
         return np.column_stack(inputs), output
