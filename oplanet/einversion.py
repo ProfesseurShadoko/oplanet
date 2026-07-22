@@ -362,7 +362,11 @@ class EInversion:
 
         for i, col in enumerate(self.inputs):
             if col != "metallicity_solar_dex":
-                inputs[i] = np.log(inputs[i])
+                inputs[i] = np.where(
+                    inputs[i] > 0,
+                    np.log(inputs[i]),
+                    np.nan
+                )
         output = np.log(output) if self.output != "metallicity_solar_dex" else output
 
         return np.column_stack(inputs), output
