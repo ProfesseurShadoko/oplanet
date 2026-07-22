@@ -230,7 +230,8 @@ class EInversion:
     def sort(
         median: np.ndarray,
         sigma_upper: np.ndarray,
-        sigma_lower: np.ndarray
+        sigma_lower: np.ndarray,
+        input_array: np.ndarray = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Sorts the median array and updates uncertainties accordingly.
@@ -243,6 +244,10 @@ class EInversion:
             Array of upper uncertainties (84th percentile - median), positive.
         sigma_lower : np.ndarray
             Array of lower uncertainties (16th percentile - median), negative.
+        input_array : np.ndarray
+            If not provided, the algorithm assumes that the inputs were already sorted, and hence it only has to sort
+            the median and update the uncertainties accordingly. If provided, the `input_array` will be used to extract
+            its sorting indices, who will be applied to the output maps. 
         
         Returns
         -------
@@ -256,6 +261,43 @@ class EInversion:
             Updated array of lower uncertainties corresponding to the sorted median values.
             The original value (unsorted median) is within the new uncertainty range.
         """
+        # Check that the input arrays have the same shape
+        assert median.shape == sigma_upper.shape == sigma_lower.shape, "Input arrays must have the same shape."
+
+        if input_array is not None:
+            assert median.shape == input_array.shape, "Input array must have the same shape as the median array."
+            input_shape = input_array.shape
+            # 0. Flatten everyone
+            median = median.flatten()
+            sigma_upper = sigma_upper.flatten()
+            sigma_lower = sigma_lower.flatten()
+            input_array = input_array.flatten()
+
+            # 1. Get sorting indices for the input array
+            sort_idx = np.argsort(input_array)
+
+            # 2. Sort the median and uncertainties
+            median = median[sort_idx]
+            sigma_upper = sigma_upper[sort_idx]
+            sigma_lower = sigma_lower[sort_idx]
+
+            # 3. Call the function recursively
+            median_sorted, sigma_upper_sorted, sigma_lower_sorted = EInversion.sort(median, sigma_upper, sigma_lower)
+
+            # 4. Sort again to get the original order
+            unsort_idx = np.argsort(sort_idx)
+            median_sorted = median_sorted[unsort_idx]
+            sigma_upper_sorted = sigma_upper_sorted[unsort_idx]
+            sigma_lower_sorted = sigma_lower_sorted[unsort_idx]
+
+            # 5. Reshape to the original shape
+            median_sorted = median_sorted.reshape(input_shape)
+            sigma_upper_sorted = sigma_upper_sorted.reshape(input_shape)
+            sigma_lower_sorted = sigma_lower_sorted.reshape(input_shape)
+            
+            return median_sorted, sigma_upper_sorted, sigma_lower_sorted
+
+
         # 0. Leave nan values untouched
         nan_mask = np.isnan(median)
 
