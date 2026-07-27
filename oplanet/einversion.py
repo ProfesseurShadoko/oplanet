@@ -118,7 +118,7 @@ class EInversion:
         # 3. Create upper and lower models for uncertainty estimation
         upper_df = self.df.copy(deep=True)
         lower_df = self.df.copy(deep=True)
-        # rename clumns that have an _upper or _lower suffix to the original column name
+        # rename columns that have an _upper or _lower suffix to the original column name
         for col in self.columns:
             if col+"_upper" in self.df.columns:
                 upper_df[col] = self.df[col+"_upper"]
@@ -150,13 +150,17 @@ class EInversion:
 
         return y_median, y_lower, y_upper
     
-    def __call__(self, *inputs:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def __call__(self, *inputs:np.ndarray, distance_pc: float=10) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Parameters
         ----------
         *inputs : np.ndarray | float
             Input parameters in the order defined by the scheme.
-        
+        distance_pc : float, optional
+            Distance in parsecs. Default is 10 pc, which is the distance at which the photometry is defined.
+            If one of the inputs is a photometry, for a target at 30 pc, one should either mulitply the
+            input photometry by `(30/10)**2 = 9`, or set `distance_pc=30` to automatically scale the photometry to 10 pc.
+
         Returns
         -------
         y_median : np.ndarray
@@ -182,13 +186,18 @@ class EInversion:
         
         df = pd.DataFrame({col: inp for col, inp in zip(self._init_inputs, inputs)})
 
-        # 3. Predict the output parameter
+        # 3. Scale photometry to 10 pc if needed
+        for col in self._init_inputs:
+            if col.endswith("_jy_10pc"):
+                df[col] = df[col] * (distance_pc / 10)**2
+
+        # 4. Predict the output parameter
         y_median, y_lower, y_upper = self.predict(df)
         y_median = y_median.reshape(output_shape)
         y_lower = y_lower.reshape(output_shape)
         y_upper = y_upper.reshape(output_shape)
 
-        # 4. Return the median and the uncertainties
+        # 5. Return the median and the uncertainties
         if scalar_output:
             return y_median.item(), y_upper.item() - y_median.item(), y_lower.item() - y_median.item()
         else:
