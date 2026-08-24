@@ -10,13 +10,17 @@ This package is built to make exoplanet metadata easier to use in notebooks and 
 
 ```bash
 pip install oplanet
+python -m oplanet.setup
 ```
 
 ### From GitHub 
 
 ```bash
 pip install "git+https://github.com/ProfesseurShadoko/oplanet.git"
+python -m oplanet.setup
 ```
+
+
 
 ## Quick examples
 

@@ -25,7 +25,7 @@ linder_csv = os.path.join(model_folder, "linder_2019_grid_oplanet.csv")
 sonora_csv = os.path.join(model_folder, "sonora_2021_grid_oplanet.csv")
 
 if not all(os.path.exists(f) for f in [atmo_csv, hades_csv, linder_csv, sonora_csv]):
-    Message("Evolutionnary files are missing. Please run `python -m oplanet.setup` to download them.", "!")
+    Message("Evolutionnary files are missing. Please run `EInversion.download()` or `python -m oplanet.einversion` to download them.", "!")
 
 # -------------------- #
 # !-- Interpolator --! #

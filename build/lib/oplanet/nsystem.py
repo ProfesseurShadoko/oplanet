@@ -137,11 +137,6 @@ class NSystem:
         new_system.df = self.df.reset_index(drop=True).copy(deep=True)
         new_system._chosen_row = self._chosen_row
         return new_system
-
-
-    # ----------------------- #
-    # !-- Data Management --! #
-    # ----------------------- #
     
     @staticmethod
     def _check_if_old():
@@ -517,15 +512,10 @@ class NSystem:
         self._chosen_row = row
 
 
-    # --------------- #
-    # !-- Getters --! #
-    # --------------- #
-
     def _get(self, column:str, _allow_fallback:bool = True) -> np.ndarray:
         """
         Returns the value for a given column at the chosen row.
         """
-        self._last_ref = "N/A"
 
         # 1. Locate the columns
         column_err1 = column + "err1"
@@ -549,8 +539,6 @@ class NSystem:
                 # upper limit
                 value, err1 = np.nan, value
 
-            self._last_ref = self.reference
-
 
         # 4. Check for fallback if necessary
         if np.isnan(value):
@@ -573,7 +561,6 @@ class NSystem:
                     # c. If new valid value, replace
                     if not np.isnan(value) and np.isnan(best_value):
                         best_value, best_err1, best_err2 = value, err1, err2
-                        self._last_ref = self.reference
                         continue
 
                     # here, both value and best_value are either both valid or both nans
@@ -583,7 +570,6 @@ class NSystem:
                         if np.isnan(best_err1) or np.isnan(best_err2):
                             if not np.isnan(err1) and not np.isnan(err2):
                                 best_value, best_err1, best_err2 = value, err1, err2
-                                self._last_ref = self.reference
                                 continue
                             else:
                                 continue
@@ -596,7 +582,6 @@ class NSystem:
                             best_error_range = np.abs(best_err1) + np.abs(best_err2)
                             if error_range < best_error_range:
                                 best_value, best_err1, best_err2 = value, err1, err2
-                                self._last_ref = self.reference
                                 continue
                     else:
                         # here, both value and best_value are both nans
@@ -604,83 +589,15 @@ class NSystem:
                         if not np.isnan(err1):
                             if np.isnan(best_err1) or err1 < best_err1:
                                 best_err1 = err1
-                                self._last_ref = self.reference
                         if not np.isnan(err2):
                             if np.isnan(best_err2) or err2 < best_err2:
                                 best_err2 = err2
-                                self._last_ref = self.reference
                 
                 value, err1, err2 = best_value, best_err1, best_err2
                 self._chosen_row = original_chosen_row # reset to original chosen row
 
         return np.array([value, err1, err2])
-
-    def last_used_reference(self) -> str:
-        """
-        Returns the reference of the last outputed value.
-        """
-        return self._last_ref
-
-    def display_references(self, attributes: list[str] = []):
-        """
-        Displays the references of the different values returned by the properties.
-
-        Parameters
-        ----------
-        attributes : list of str, optional
-            A list of attributes to display the references for. If empty, nothing is displayed.
-            The attributes can contain nested properties, for instance "star.mass" or "b.radius".
-        """
-        if len(attributes) == 0:
-            return
-
-        def get_ref_safe(obj, attr:str) -> str:
-            NSystem._freeze_rows = True
-            try:
-                for a in attr.split("."):
-                    obj = getattr(obj, a)
-                if isinstance(obj, (int, float, list, np.ndarray, str)):
-                    return self.last_used_reference()
-                else:
-                    return "N/A"
-            except:
-                return "N/A"
-            finally:
-                NSystem._freeze_rows = False
-
-        Message(f"References used for {self._config_key}:").list({
-            attr: get_ref_safe(self, attr) for attr in attributes
-        })
-
-    def reference_dataframe(self, attributes: list[str] = []) -> pd.DataFrame:
-        """
-        Returns a dataframe containing the references of the different values returned by the properties.
-        """
-        columns = ["Attribute", "Value", r"$\sigma_-$", r"$\sigma_+$", "Reference"]
-        data = []
-        for attr in attributes:
-            def safe_get(obj, path:str) -> np.ndarray:
-                NSystem._freeze_rows = True
-                try:
-                    for a in path.split("."):
-                        previous_obj:NSystem = obj
-                        obj = getattr(obj, a)
-                    if isinstance(obj, (int, float, list, np.ndarray, str)):
-                        return self._get(path), previous_obj.last_used_reference()
-                    else:
-                        return np.array([np.nan, np.nan, np.nan]), "N/A"
-                except:
-                    return np.array([np.nan, np.nan, np.nan]), "N/A"
-                finally:
-                    NSystem._freeze_rows = False
-            row = safe_get(self, attr)
-            # convert to strings with 5 decimal places, or "N/A" if nan
-            row_str = [
-                f"{x:.5f}" if isinstance(x, (int, float)) and not np.isnan(x) else "N/A"
-                for x in row[0]
-            ]
-            data.append([attr, *row_str, row[1]])
-        return pd.DataFrame(data, columns=columns)
+    
 
     @staticmethod
     def reset_config():
@@ -747,7 +664,7 @@ class NSystem:
             "Parallax (mas)": self.parallax_mas,
             "Coordinates (RA, Dec)": f"({self.ra[0]:.4f}, {self.dec[0]:.4f})",
             "Reference": self.reference,
-            "Row": f"{self._chosen_row} (0-...-{len(self.df)-1})"
+            "Row": f"{self._chosen_row}/{len(self.df)-1}"
         })
 
         if row is not None:

@@ -517,7 +517,43 @@ class SFilter:
     # !-- Convolution --! #
     # ------------------- #
 
-    def support(self, N: int = 10, flux_type:Literal["lambda", "nu"] = "lambda") -> np.ndarray:
+    def weights(self, wavelength: float | np.ndarray) -> float | np.ndarray:
+        """
+        Let's consider a spectrum F(lambda). TO get the photometry, on needs to
+        compute: `F = int F(lambda) * tr(lambda) d_lambda / int tr(lambda) d_lambda`.
+
+        Any given spectrum will however be discret, thus the integral becomes:
+        `F = trapezoid(F(lambda_i) * tr(lambda_i) / int tr(lambda) d_lambda)`.
+        or rewritten differently:
+        ```
+        F = trapezoid((F_i * w_i), lambda_i)
+        ```
+        with `w_i = tr(lambda_i) / int tr(lambda) d_lambda`. This function returns `w_i`.
+
+        Parameters
+        ----------
+        wavelength : float or np.ndarray
+            Wavelength(s) at which to compute the transmission (in meters).
+            
+        Returns
+        -------
+        float or np.ndarray
+            Weights at the specified wavelength(s).
+
+        Examples
+        --------
+        ```python
+        wl, flux_jy = get_spectrum() # get a spectrum
+        weights = SFilter("F1140C").weights(wl)
+        photometry_jy = np.trapezoid(flux_jy * weights, wl) # compute the photometry
+        ```
+        Do not use these weights with `sum` only to compute the integral, as the wavelength
+        quadrature would not be taken into account. Use `np.trapezoid` instead.
+        """
+        weights = self.tr / np.trapezoid(self.tr, self.wl)
+        return np.interp(wavelength, self.wl, weights, left=0, right=0)
+    
+    def support(self, N: int = 10) -> np.ndarray:
         """
         Returns the optimal wavelengths to consider to best sample from the filter
         transmission curve. In other words, the question is the following. I want to compute
@@ -529,36 +565,19 @@ class SFilter:
         lambda_i = int_bin lambda * tr(lambda) d_lambda / int tr(lambda) d_lambda
         ```
 
-        This way, 
-        ```
-        (int F(lambda) T(lambda) d lambda) / (int T(lambda) dlambda} approx 1/N sum F( lambda_i)
-        ```
-
-
         Parameters
         ----------
         N : int
             Number of points to consider. The optimal wavelengths will be returned as an array of size `N`.
-        flux_type : Literal["lambda", "nu"]
-            Type of flux you want to propagate through the filter, which slightly changes the bins
-            so that the average still approximates the integral. See the `photometry` method for more
-            details.
         
         Returns
         -------
         np.ndarray
             Optimal wavelengths to consider to best sample the filter transmission curve (in meters).
         """
-        # 0. Define weighting kernels like photometry function
-        wavelengths = self.wl
-        frequency_conversion_kernel = const.c.value / wavelengths**2 if flux_type == "nu" else 1
-        detector_type_kernel = wavelengths if self.detector_type == "photon_counter" else 1
-        weights = self.tr * frequency_conversion_kernel * detector_type_kernel
-                
-
         # 1. Compute the cumulative distribution function (CDF) of the filter transmission curve
         from scipy.integrate import cumulative_trapezoid
-        cdf = cumulative_trapezoid(weights, self.wl, initial=0)
+        cdf = cumulative_trapezoid(self.tr, self.wl, initial=0)
         cdf = cdf / cdf[-1]
 
         # 2. Compute the bins
@@ -570,8 +589,8 @@ class SFilter:
             wl_min = wavelength_bins[i]
             wl_max = wavelength_bins[i+1]
             wl_bin = self.wl[(self.wl >= wl_min) & (self.wl <= wl_max)]
-            weights_bin = weights[(self.wl >= wl_min) & (self.wl <= wl_max)]
-            opt_wl = np.trapezoid(wl_bin * weights_bin, wl_bin) / np.trapezoid(weights_bin, wl_bin)
+            tr_bin = self.tr[(self.wl >= wl_min) & (self.wl <= wl_max)]
+            opt_wl = np.trapezoid(wl_bin * tr_bin, wl_bin) / np.trapezoid(tr_bin, wl_bin)
             optimal_wavelengths.append(opt_wl)
 
         return np.array(optimal_wavelengths)
