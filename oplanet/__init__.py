@@ -1,6 +1,6 @@
 
 
-__version__ = "2.1.4"
+__version__ = "2.2.0"
 from .oconfig import oplanet_config
 
 from .star_utils import get_photometry_jy, get_distance_pc, get_star_coords
@@ -9,5 +9,6 @@ from .star_utils import get_star_aliases, is_star_alias, get_star_name, parse_st
 from .sfilter import SFilter
 
 from .nsystem import NSystem
+from .gsystem import GStar
 
 from .einversion import EInversion
