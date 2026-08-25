@@ -777,7 +777,7 @@ class NSystem:
             length as the attributes list. If not provided, the attribute names are used as is.
         """
         df = self.ref_df(attributes, latex)
-        return df.to_latex(index=False, escape=False, column_format="l" + "c" * (len(df.columns)-1))
+        return df.to_latex(index=False, escape=False, column_format="l" + "c" * (len(df.columns)-1), caption=f"{self.name} parameters summary")
 
     @staticmethod
     def reset_config(refresh_objects: list = []) -> None:
