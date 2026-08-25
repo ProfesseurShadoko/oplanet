@@ -31,8 +31,8 @@ default_config = {
         "references": [],
         "properties": {
             "age_myr":1,
-            "mass_solar":1,
-            "radius_solar":1,
+            "mass_msun":1,
+            "radius_rsun":1,
             "metallicity_dex":1,
             "system.distance_pc":1
         },
@@ -45,7 +45,7 @@ default_config = {
             "star.age_myr":1,
             "system.distance_pc":1,
             "orbital_period_yrs":2,
-            "mass_sini_mjup":1,
+            "msini_mjup":1,
             "mass_mjup":3,
             "sma_au":2,
             "eccentricity":1,
@@ -59,27 +59,33 @@ default_config = {
     },
 }
 
+default_config = XConfig(filepath=os.path.join(dirname, "default_config.json"), default_config=default_config)
 
-oplanet_config = XConfig(
-    dirname, default_config=default_config
-)
-oplanet_temp_config = deepcopy(dict(oplanet_config))
+class OPlanetConfig(dict):
+    def __init__(self):
+        self.default_config = default_config
+        super().__init__(deepcopy(default_config))
 
-def reset_config():
-    """
-    Resets the temporary configuration to the default configuration
-    (which is stored in the oplanet_config object).
-    """
-    global oplanet_temp_config
-    # print(f"Resetting ID: {id(oplanet_temp_config)}")
-    oplanet_temp_config.clear()
-    oplanet_temp_config.update(oplanet_config)
-    
-def update_default_config():
-    """
-    Synchorinzes the default configuration with the json file,
-    so that the next time the package is imported, the default config
-    is the current config (this has nothing to do with the temporary
-    config, which is only used for the current session).
-    """
-    oplanet_config._dump()
+    def reset(self):
+        """
+        Resets the current configuration to be the default configuration.
+        """
+        self.clear()
+        self.update(deepcopy(self.default_config))
+
+    def dump(self):
+        """
+        Makes the current configuration become the default configuration
+        for the future.
+        """
+        self.default_config.clear()
+        self.default_config.update(deepcopy(self))
+        self.default_config._dump() # save to file
+
+    def reset_default(self):
+        """
+        Resets the default configuration to be the hard coded default configuration.
+        """
+        self.default_config.reset()
+
+oplanet_config = OPlanetConfig()

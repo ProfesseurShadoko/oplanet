@@ -7,7 +7,7 @@
 import oakley
 from .star_utils import get_star_aliases, parse_star_name,  get_star_name
 from .data_loaders import get_database, refresh_data, check_if_old
-from .oconfig import oplanet_temp_config, reset_config
+from .oconfig import oplanet_config
 
 import numpy as np
 import astropy.units as u
@@ -257,7 +257,7 @@ class NSystem:
                 author, date = ref.rsplit("_", 1)
                 if not date.isdigit() and date != "None":
                     raise ValueError(f"Invalid reference format: '{ref}'. Must be a string in the format 'Author_Date', where Author is a string and Date is an integer.")
-            oplanet_temp_config[self._config_key]["references"] = references
+            oplanet_config[self._config_key]["references"] = references
         
         if properties is not None:
             # check that it corresponds to property names and integer values
@@ -277,15 +277,15 @@ class NSystem:
                 assert isinstance(prop, str), f"Invalid property name: '{prop}'. Must be a string."
                 assert isinstance(value, int), f"Invalid property value: '{value}' for property '{prop}'. Must be an integer."
                 assert safe_get(self, prop), f"Invalid property name: '{prop}'. Must be a valid property of the NSystem or its subclasses. Current class: {self.__class__.__name__}."
-            oplanet_temp_config[self._config_key]["properties"] = properties
+            oplanet_config[self._config_key]["properties"] = properties
 
         if fallback is not None:
             assert isinstance(fallback, bool), f"Invalid value for fallback: '{fallback}'. Must be a boolean."
-            oplanet_temp_config[self._config_key]["fallback"] = fallback
+            oplanet_config[self._config_key]["fallback"] = fallback
         
         if order_authors is not None:
             assert isinstance(order_authors, bool), f"Invalid value for order_authors: '{order_authors}'. Must be a boolean."
-            oplanet_temp_config[self._config_key]["order_authors"] = order_authors
+            oplanet_config[self._config_key]["order_authors"] = order_authors
 
         if references is not None or properties is not None or fallback is not None or order_authors is not None:
             self._choose_row() # choose again, based on the updated preferences
@@ -307,9 +307,12 @@ class NSystem:
             The date of the reference to add, as an integer year. If None, any date will match.
         """
         reference = f"{author}_{date}"
-        current_references = oplanet_temp_config[self._config_key]["references"]
-        self.set_config(references=sorted(set(current_references + [reference])))
-
+        current_references = oplanet_config[self._config_key]["references"]
+        if reference in current_references:
+            # remove it and reinstert it
+            current_references.remove(reference)
+        references = current_references + [reference]
+        self.set_config(references=references)
 
     def remove_reference_priority(
         self,
@@ -327,7 +330,7 @@ class NSystem:
             The date of the reference to remove, as an integer year.
         """
         reference = f"{author}_{date}"
-        self.set_config(references=[ref for ref in oplanet_temp_config[self._config_key]["references"] if ref != reference])
+        self.set_config(references=[ref for ref in oplanet_config[self._config_key]["references"] if ref != reference])
 
     def add_property_priority(
         self,
@@ -345,7 +348,7 @@ class NSystem:
             The weight to apply to this property when choosing the row. Must be an integer.
         """
         import copy
-        current_properties = copy.deepcopy(oplanet_temp_config[self._config_key]["properties"])
+        current_properties = copy.deepcopy(oplanet_config[self._config_key]["properties"])
         current_properties[property_name] = weight
         self.set_config(properties=current_properties)
 
@@ -361,7 +364,7 @@ class NSystem:
         property_name : str
             The name of the property to remove, as a string. Must be a valid property of the NSystem or its subclasses.
         """
-        current_properties = oplanet_temp_config[self._config_key]["properties"]
+        current_properties = oplanet_config[self._config_key]["properties"]
         if property_name in current_properties:
             del current_properties[property_name]
             self.set_config(properties=current_properties)
@@ -397,14 +400,20 @@ class NSystem:
         """
         self.set_config(order_authors=order_authors)
 
+    def refresh(self):
+        """
+        Chooses a row again, based on the current preferences.
+        Useful after `reset_config` to re-apply preferences.
+        """
+        self._choose_row()
 
     def _choose_row(self) -> None:
         """
         Among all rows of the dataframe, chooses the one to use for the system properties.
         """
         # disable fallback when looking for best rows, otherwise values will be filled by default
-        fallback = oplanet_temp_config[self._config_key]["fallback"]
-        oplanet_temp_config[self._config_key]["fallback"] = False
+        fallback = oplanet_config[self._config_key]["fallback"]
+        oplanet_config[self._config_key]["fallback"] = False
 
         def safe_get(obj, path:str) -> bool:
             NSystem._freeze_rows = True
@@ -427,8 +436,8 @@ class NSystem:
             error_precision = 0
             _not_na_weights = []
 
-            N_references = len(oplanet_temp_config[self._config_key]["references"])
-            for i,priority_reference in enumerate(oplanet_temp_config[self._config_key]["references"]):
+            N_references = len(oplanet_config[self._config_key]["references"])
+            for i,priority_reference in enumerate(oplanet_config[self._config_key]["references"]):
                 # get date as integer
                 date_str = priority_reference.rsplit("_", 1)[-1].strip()
                 date = int(date_str) if date_str.isdigit() else None
@@ -438,12 +447,12 @@ class NSystem:
                 row_author = self.reference_author.lower().replace(" ", "").replace("-", "").replace("_", "") if self.reference_author is not None else ""
         
                 if author in row_author and (date is None or row_date == date):
-                    if oplanet_temp_config[self._config_key]["order_authors"]:
+                    if oplanet_config[self._config_key]["order_authors"]:
                         reference_matching += N_references - i # higher score for first reference in the list!
                     else:
                         reference_matching += 1
 
-            for prop, weight in oplanet_temp_config[self._config_key]["properties"].items():
+            for prop, weight in oplanet_config[self._config_key]["properties"].items():
                 data = safe_get(self, prop)
 
                 # 1. Existence
@@ -506,7 +515,7 @@ class NSystem:
 
         self._chosen_row = self._priorities[0][0] # choose the row with the best priority
         # reset fallback to its original value
-        oplanet_temp_config[self._config_key]["fallback"] = fallback
+        oplanet_config[self._config_key]["fallback"] = fallback
 
     def set_row(self, row:int):
         """
@@ -526,6 +535,7 @@ class NSystem:
         Returns the value for a given column at the chosen row.
         """
         self._last_ref = "N/A"
+        self._last_ref_url = ""
 
         # 1. Locate the columns
         column_err1 = column + "err1"
@@ -550,11 +560,11 @@ class NSystem:
                 value, err1 = np.nan, value
 
             self._last_ref = self.reference
-
+            self._last_ref_url = self.reference_url
 
         # 4. Check for fallback if necessary
         if np.isnan(value):
-            if oplanet_temp_config[self._config_key]["fallback"] and _allow_fallback: # check wether any row has a value for this column. pick the one with lowest errors
+            if oplanet_config[self._config_key]["fallback"] and _allow_fallback: # check wether any row has a value for this column. pick the one with lowest errors
                 original_chosen_row = self._chosen_row
                 best_value = np.nan
                 best_err1 = np.nan
@@ -574,6 +584,7 @@ class NSystem:
                     if not np.isnan(value) and np.isnan(best_value):
                         best_value, best_err1, best_err2 = value, err1, err2
                         self._last_ref = self.reference
+                        self._last_ref_url = self.reference_url
                         continue
 
                     # here, both value and best_value are either both valid or both nans
@@ -584,6 +595,7 @@ class NSystem:
                             if not np.isnan(err1) and not np.isnan(err2):
                                 best_value, best_err1, best_err2 = value, err1, err2
                                 self._last_ref = self.reference
+                                self._last_ref_url = self.reference_url
                                 continue
                             else:
                                 continue
@@ -597,6 +609,7 @@ class NSystem:
                             if error_range < best_error_range:
                                 best_value, best_err1, best_err2 = value, err1, err2
                                 self._last_ref = self.reference
+                                self._last_ref_url = self.reference_url
                                 continue
                     else:
                         # here, both value and best_value are both nans
@@ -605,21 +618,23 @@ class NSystem:
                             if np.isnan(best_err1) or err1 < best_err1:
                                 best_err1 = err1
                                 self._last_ref = self.reference
+                                self._last_ref_url = self.reference_url
                         if not np.isnan(err2):
                             if np.isnan(best_err2) or err2 < best_err2:
                                 best_err2 = err2
                                 self._last_ref = self.reference
-                
+                                self._last_ref_url = self.reference_url
+
                 value, err1, err2 = best_value, best_err1, best_err2
                 self._chosen_row = original_chosen_row # reset to original chosen row
 
         return np.array([value, err1, err2])
 
-    def last_used_reference(self) -> str:
+    def last_used_reference(self) -> tuple[str, str]:
         """
-        Returns the reference of the last outputed value.
+        Returns the reference, and its url, of the last outputed value.
         """
-        return self._last_ref
+        return self._last_ref, self._last_ref_url
 
     def display_references(self, attributes: list[str] = []):
         """
@@ -642,9 +657,9 @@ class NSystem:
                 if isinstance(obj, (int, float, list, np.ndarray, str)):
                     return self.last_used_reference()
                 else:
-                    return "N/A"
+                    return "---"
             except:
-                return "N/A"
+                return "---"
             finally:
                 NSystem._freeze_rows = False
 
@@ -652,13 +667,36 @@ class NSystem:
             attr: get_ref_safe(self, attr) for attr in attributes
         })
 
-    def reference_dataframe(self, attributes: list[str] = []) -> pd.DataFrame:
+    def ref_df(self, attributes: list[str]|dict, latex: list[str] = None, ndigits: int|list = 2) -> pd.DataFrame:
         """
         Returns a dataframe containing the references of the different values returned by the properties.
+
+        Parameters
+        ----------
+        attributes : list of str or dict
+            A list of attributes to display the references for. If empty, nothing is displayed.
+            If a dict is provided, the keys are the attributes and the values are the latex names to use for the attributes.
+        latex : list of str, optional
+            A list of latex names to use for the attributes. If provided, must be the same
+            length as the attributes list. If not provided, the attribute names are used as is.
+        ndigits : int, optional
+            The number of digits to round the values to. Default is 2.
+            If a list is provided, it must be the same length as the attributes list, and each value will be rounded to
+            the corresponding number of digits.
         """
-        columns = ["Attribute", "Value", r"$\sigma_-$", r"$\sigma_+$", "Reference"]
+        if isinstance(attributes, dict):
+            latex = list(attributes.values())
+            attributes = list(attributes.keys())
+
+        if latex is not None:
+            assert len(latex) == len(attributes), f"Length of latex list ({len(latex)}) must be equal to length of attributes list ({len(attributes)})."
+        if isinstance(ndigits, int):
+            ndigits = [ndigits] * len(attributes)
+        assert len(ndigits) == len(attributes), f"Length of ndigits list ({len(ndigits)}) must be equal to length of attributes list ({len(attributes)})."
+
+        columns = ["Attribute", "Value", "Reference"]
         data = []
-        for attr in attributes:
+        for i, attr in enumerate(attributes):
             def safe_get(obj, path:str) -> np.ndarray:
                 NSystem._freeze_rows = True
                 try:
@@ -666,38 +704,105 @@ class NSystem:
                         previous_obj:NSystem = obj
                         obj = getattr(obj, a)
                     if isinstance(obj, (int, float, list, np.ndarray, str)):
-                        return self._get(path), previous_obj.last_used_reference()
+                        return obj, previous_obj.last_used_reference()
                     else:
-                        return np.array([np.nan, np.nan, np.nan]), "N/A"
+                        return np.array([np.nan, np.nan, np.nan]), ["---", ""]
                 except:
-                    return np.array([np.nan, np.nan, np.nan]), "N/A"
+                    return np.array([np.nan, np.nan, np.nan]), ["---", ""]
                 finally:
                     NSystem._freeze_rows = False
             row = safe_get(self, attr)
             # convert to strings with 5 decimal places, or "N/A" if nan
+            def format_value(x, ndigits:int) -> str:
+                if isinstance(x, (int, float)) and not np.isnan(x):
+                    return f"{x:.{ndigits}f}"
+                else:
+                    return "---"
+                
             row_str = [
-                f"{x:.5f}" if isinstance(x, (int, float)) and not np.isnan(x) else "N/A"
+                format_value(x, ndigits[i]) if isinstance(x, (int, float)) and not np.isnan(x) else "---"
                 for x in row[0]
             ]
-            data.append([attr, *row_str, row[1]])
+            if row_str[0] != "---":
+                # let's actually add +- uncertainty symbols on the value in latex
+                row_str[1] = r"^{+" + row_str[1] + r"}" if row_str[1] != "---" else ""
+                row_str[2] = r"_{" + row_str[2] + r"}" if row_str[2] != "---" else ""
+                row_str = [
+                    f"${row_str[0]}{row_str[1]}{row_str[2]}$"
+                ]
+            else: # its a limit
+                if row_str[1] != "---":
+                    row_str = [
+                        f"$<{row_str[1]}$"
+                    ]
+                elif row_str[2] != "---":
+                    row_str = [
+                        f"$>{row_str[2]}$"
+                    ]
+                else:
+                    row_str = [
+                        "---"
+                    ]
+
+
+
+            if row[1][0] != "---":
+                if row[1][1] == "":
+                    row_str.append(f"{row[1][0]}")
+                else:
+                    # use href
+                    row_str.append(r"\href{ " + row[1][1] + " }{" + row[1][0] + "}")
+            else:
+                row_str.append("---")
+
+            if latex is not None:
+                attr = latex[i]
+            data.append([attr, *row_str])
+
+        # let's actually add +- uncertainty symbols on the value in latex
+        
         return pd.DataFrame(data, columns=columns)
 
+    def ref_latex(self, attributes: list[str]|dict, latex: list[str] = None) -> str:
+        """
+        Returns a latex table containing the references of the different values returned by the properties.
+
+        Parameters
+        ----------
+        attributes : list of str or dict
+            A list of attributes to display the references for. If empty, nothing is displayed.
+            If a dict is provided, the keys are the attributes and the values are the latex names to use for the attributes.
+        latex : list of str, optional
+            A list of latex names to use for the attributes. If provided, must be the same
+            length as the attributes list. If not provided, the attribute names are used as is.
+        """
+        df = self.ref_df(attributes, latex)
+        return df.to_latex(index=False, escape=False, column_format="l" + "c" * (len(df.columns)-1))
+
     @staticmethod
-    def reset_config():
+    def reset_config(refresh_objects: list = []) -> None:
         """
         Resets the temporary configuration to the default
         configuration (stored in the oplanet_config object,
         synchronized with the json file).
+
+        Parameters
+        ----------
+        refresh_objects : list
+            A list of objects to refresh after resetting
+            the configuration. Calls the `refresh()` method.
+
         """
-        # print(f"Resetting ID: {id(oplanet_temp_config)}")
-        reset_config()
+        oplanet_config.reset()
+        for obj in refresh_objects:
+            obj.refresh()
 
     def display_config(self):
         """
         Displays the current configuration for the object's properties.
         """
         boolean_to_str = lambda b: cstr("True").green() if b else cstr("False").red()
-        config = oplanet_temp_config[self._config_key]
+        config = oplanet_config[self._config_key]
         with Message(f"Current configuration for '{self._config_key}':"):
             Message("References priority:").list(config["references"])
             Message("Properties priority:").list(config["properties"])
@@ -747,7 +852,7 @@ class NSystem:
             "Parallax (mas)": self.parallax_mas,
             "Coordinates (RA, Dec)": f"({self.ra[0]:.4f}, {self.dec[0]:.4f})",
             "Reference": self.reference,
-            "Row": f"{self._chosen_row} (0-...-{len(self.df)-1})"
+            "Row": f"{self._chosen_row} [0,...,{len(self.df)-1}]"
         })
 
         if row is not None:
@@ -1120,7 +1225,7 @@ class NStar(NSystem):
         return out * conversion_factor
     
     @property
-    def mass_solar(self) -> np.ndarray:
+    def mass_msun(self) -> np.ndarray:
         """
         Returns the mass of the star in solar masses.
         """
@@ -1128,7 +1233,7 @@ class NStar(NSystem):
         return out
     
     @property
-    def radius_solar(self) -> np.ndarray:
+    def radius_rsun(self) -> np.ndarray:
         """
         Returns the radius of the star in solar radii.
         """
@@ -1136,7 +1241,7 @@ class NStar(NSystem):
         return out
     
     @property
-    def luminosity_solar(self) -> np.ndarray:
+    def luminosity_lsun(self) -> np.ndarray:
         """
         Returns the luminosity of the star in solar luminosities.
         """
@@ -1173,15 +1278,15 @@ class NStar(NSystem):
             self._chosen_row = row % len(self.df)
         Message(f"Star {cstr(self.star_name):y} properties:").list({
             "Age (Myr)": self.age_myr,
-            "Mass (solar masses)": self.mass_solar,
-            "Radius (solar radii)": self.radius_solar,
-            "Luminosity (solar luminosities)": self.luminosity_solar,
+            "Mass (solar masses)": self.mass_msun,
+            "Radius (solar radii)": self.radius_rsun,
+            "Luminosity (solar luminosities)": self.luminosity_lsun,
             "Effective temperature (K)": self.Teff_k,
             "Irradiation temparature at 1 arcsec (K)": self.Tirr_k(1),
             "Metallicity (dex)": self.metallicity_dex,
             "Spectral type": self.spectral_type,
             "Reference": self.reference,
-            "Row": f"{self._chosen_row}/{len(self.df)-1}"
+            "Row": f"{self._chosen_row} [0,...,{len(self.df)-1}]"
         })
         if row is not None:
             self._chosen_row = original_chosen_row # reset to original chosen row
@@ -1247,7 +1352,7 @@ class NStar(NSystem):
         try:
             # 2. Get measurements
             teff, teff_err1, teff_err2 = self.fill(self.Teff_k)
-            radius_solar, radius_err1_solar, radius_err2_solar = self.fill(self.radius_solar)
+            radius_solar, radius_err1_solar, radius_err2_solar = self.fill(self.radius_rsun)
             distance_pc, distance_err1_pc, distance_err2_pc = self.fill(self.distance_pc)
 
             # 3. Convert distances
@@ -1361,7 +1466,7 @@ class NPlanet(NSystem):
         return out * conversion_factor
 
     @property
-    def mass_sini_mjup(self) -> np.ndarray:
+    def msini_mjup(self) -> np.ndarray:
         return self._get("pl_msinij")
     
     @property
@@ -1439,7 +1544,7 @@ class NPlanet(NSystem):
             self._chosen_row = row % len(self.df)
             # disable fallback to avoid picking values from other rows
             fallback = ["fallback"]
-            oplanet_temp_config[self._config_key]["fallback"] = False
+            oplanet_config[self._config_key]["fallback"] = False
         Message(f"Planet {cstr(self.name):y} properties:").list({
             "Letter": self.letter,
             "Discovery year": self.discovery_year,
@@ -1447,7 +1552,7 @@ class NPlanet(NSystem):
             "Controversial": cstr(self.controversial).red() if self.controversial else cstr(self.controversial).green(),
             "Orbital period (yrs)": self.orbital_period_yrs,
             "Mass (Mjup)": self.mass_mjup,
-            "Mass sin(i) (Mjup)": self.mass_sini_mjup,
+            "Mass sin(i) (Mjup)": self.msini_mjup,
             "Semi-major axis (AU)": self.sma_au,
             "Eccentricity": self.eccentricity,
             "Inclination (deg)": self.inclination_deg,
@@ -1456,11 +1561,11 @@ class NPlanet(NSystem):
             "RV amplitude (m/s)": self.rv_amplitude_ms,
             "Radius (Rjup)": self.radius_rjup,
             "Reference": self.reference,
-            "Row": f"{self._chosen_row}/{len(self.df)-1}"
+            "Row": f"{self._chosen_row} [0,...,{len(self.df)-1}]"
         })
         if row is not None:
             self._chosen_row = original_chosen_row # reset to original chosen row
-            oplanet_temp_config[self._config_key]["fallback"] = fallback # reset fallback to its original value
+            oplanet_config[self._config_key]["fallback"] = fallback # reset fallback to its original value
 
 
 
