@@ -22,7 +22,8 @@ dependencies = [
   "matplotlib",
   "requests",
   "beautifulsoup4",
-  "huggingface_hub"
+  "huggingface_hub",
+  "Jinja2"
 ]
 keywords = ["astronomy", "exoplanets", "nasa", "astrophysics"]
 classifiers = [
