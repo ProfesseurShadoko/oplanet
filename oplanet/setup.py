@@ -18,7 +18,7 @@ if not ok:
 
 Message.title("Nasa Exoplanet Archive")
 from .nsystem import NSystem
-NSystem.refresh()
+NSystem.refresh_db()
 
 Message.print()
 Message.title("Inversion Tables")

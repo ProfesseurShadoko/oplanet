@@ -151,7 +151,7 @@ class NSystem:
         check_if_old("nasa")
     
     @staticmethod
-    def refresh():
+    def refresh_db():
         """
         Deletes database and triggers a download (of about 60s)
         of the Nasa Exoplanet Archive.
