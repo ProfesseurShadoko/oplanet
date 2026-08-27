@@ -1095,7 +1095,10 @@ class NSystem:
         Returns a new NSystem object with properties relative to the star.
         """
         out = self.copy()
-        return NStar(out)
+        nstar = NStar(out)
+        if not hasattr(nstar, "_chosen_row"):
+            nstar._chosen_row = self._chosen_row
+        return nstar
 
     @property
     def a(self) -> "NStar":

@@ -39,6 +39,13 @@ class EInversion:
         scheme: str = "f1140c,age,met->mass"
     ):
         """
+        Parameters
+        ----------
+        model : str
+            The evolutionary model to use. Must be one of ["atmo", "hades", "linder", "sonora"].
+        scheme : str
+            The scheme defining the input and output parameters. See Notes for more details.
+
         Notes
         -----
         The units are the following:
@@ -55,7 +62,10 @@ class EInversion:
 
         Only one output parameter is allowed, but multiple input parameters are allowed. The recommended
         schemes are `filter,age,met -> any` or `any,age,met -> filter`. Having more or less than three input 
-        parameters is not recommended, as the grid is basically three dimensional.        
+        parameters is not recommended, as the grid is basically three dimensional. 
+
+        If the code complains about the filter name, you might need to use the full SVO filter ID (which you
+        can get from SFilter). Instead of "f1140c", put "JWST/MIRI.F1140C".      
         """
         self.model = model.lower()
 
@@ -453,10 +463,23 @@ class EInversion:
                 if alias in aliases:
                     return colname
             # 2. Check wether it is a filter
-            filter_alias = alias.split(".")[-1]
-            filter_column = f"{filter_alias.lower().replace(' ', '')}_jy_10pc"
-            if filter_column in self.df.columns:
-                return filter_column
+            #filter_alias = alias.split(".")[-1]
+            #filter_column = f"{filter_alias.lower().replace(' ', '')}_jy_10pc"
+            #if filter_column in self.df.columns:
+            #    return filter_column
+
+            filter_alias_lower = f"{alias.lower().replace(' ', '')}_jy_10pc"
+            # find all columns that end with that!
+            matching_columns = [c for c in self.df.columns if c.lower().endswith(filter_alias_lower)]
+            
+            if len(matching_columns) == 1:
+                return matching_columns[0]
+            elif len(matching_columns) > 1:
+                Message(f"Alias '{alias}' is ambiguous. Found multiple matching columns: {matching_columns}. Try specifying the full filter id if this is indeed a filter.", "!").tab()
+                Message("Column name to alias mapping:").list(colnames2aliases)
+                Message("Available filters:").list([c.replace("_jy_10pc", "") for c in self.df.columns if c.endswith("_jy_10pc")])
+                raise ValueError(f"Alias '{alias}' is ambiguous. Found multiple matching columns: {matching_columns}.")
+
             with Message(f"Alias '{alias}' not found in column names.", "!").tab():
                 Message("Column name to alias mapping:").list(colnames2aliases)
                 Message("Available filters:").list([c.replace("_jy_10pc", "") for c in self.df.columns if c.endswith("_jy_10pc")])
