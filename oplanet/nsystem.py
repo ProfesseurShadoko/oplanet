@@ -684,6 +684,8 @@ class NSystem:
             If a list is provided, it must be the same length as the attributes list, and each value will be rounded to
             the corresponding number of digits.
         """
+        # i don't understan anything about this function anymore, but it seems to work, so let's not touch it xD
+
         if isinstance(attributes, dict):
             latex = list(attributes.values())
             attributes = list(attributes.keys())
@@ -744,22 +746,14 @@ class NSystem:
                         "---"
                     ]
 
-
-
-            if row[1][0] != "---":
-                if row[1][1] == "":
-                    row_str.append(f"{row[1][0]}")
-                else:
-                    # use href
-                    row_str.append(r"\href{ " + row[1][1] + " }{" + row[1][0] + "}")
+            if row_str[0] != "---":
+                row_str.append(r"\href{ " + row[1][1] + " }{" + row[1][0] + "}")
             else:
                 row_str.append("---")
 
             if latex is not None:
                 attr = latex[i]
             data.append([attr, *row_str])
-
-        # let's actually add +- uncertainty symbols on the value in latex
         
         return pd.DataFrame(data, columns=columns)
 
