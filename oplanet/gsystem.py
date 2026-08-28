@@ -359,6 +359,7 @@ class GStar:
         date:str,
         rotation_rad: float = 0,
         radius_arcsec: float = 20,
+        radius_arcsec_query: float = None,
         axis_unit:Literal["arcsec", "au"] = "arcsec",
         **kwargs
     ) -> None:
@@ -375,6 +376,10 @@ class GStar:
             is expected to be north alinged). You can use the WCS information of the image to find the rotation angle.
         radius_arcsec : float, optional
             Radius of the circular region to plot, in arcseconds. Default is 20.
+        radius_arcsec_query : float, optional
+            Radius of the circular region to query the Gaia DR3 database, in arcseconds. Default to None (use radius_arcsec).
+            Indeed, because of proper motion and all, ou might need to query a larger region than the one you want to plot, 
+            and then only plot the objects within the smaller radius.
         axis_unit : str, optional
             Unit of the axis. Can be "arcsec" or "au". Default is "arcsec".
         **kwargs
@@ -403,6 +408,8 @@ class GStar:
         """
         if not "color" in kwargs:
             kwargs["color"] = "black"
+        if radius_arcsec_query is None:
+            radius_arcsec_query = radius_arcsec
 
         xmin, xmax = plt.xlim()
         ymin, ymax = plt.ylim()
@@ -410,7 +417,7 @@ class GStar:
         ra_origin, dec_origin = self.get_position_deg(date)
 
         # 1. Collect all Gaia DR3 source ids
-        gaia_ids = self.query_region(self.ra_deg[0], self.dec_deg[0], radius_arcsec)
+        gaia_ids = self.query_region(self.ra_deg[0], self.dec_deg[0], radius_arcsec_query)
         # remove self
         gaia_ids = [id for id in gaia_ids if id != self.id]
         if len(gaia_ids) == 0:
@@ -436,6 +443,10 @@ class GStar:
             # c. Apply rotation
             sep_x = x_unrotated * np.cos(rotation_rad) - y_unrotated * np.sin(rotation_rad)
             sep_y = x_unrotated * np.sin(rotation_rad) + y_unrotated * np.cos(rotation_rad)
+
+            # skip if outside the radius
+            if np.sqrt(sep_x**2 + sep_y**2) > radius_arcsec:
+                continue
 
             # d. Convert to au if needed
             if axis_unit.lower().strip() == "au":
