@@ -489,6 +489,18 @@ class GStar:
     def projected_separation(self, other:"GStar", date:str) -> float:
         """
         Computes the projected separation between two GStar objects at a given date, in arcseconds.
+
+        Parameters
+        ----------
+        other : GStar
+            Another GStar object to compute the separation from.
+        date : str
+            Date in the format "YYYY-MM-DD". Important to account for proper motion of the objects.
+        
+        Returns
+        -------
+        float
+            Projected separation in arcseconds.
         """
         ra1, dec1 = self.get_position_deg(date)
         ra2, dec2 = other.get_position_deg(date)
@@ -503,6 +515,19 @@ class GStar:
         """
         Queries the Gaia DR3 database for objects around the current star, within a given radius.
         The results are returned as a list of GStar objects, sorted by projected separation from the current star.
+
+        Parameters
+        ----------
+        date : str
+            Date in the format "YYYY-MM-DD". Important to account for proper motion of the objects
+        radius_arcsec : float
+            Radius of the circular region to query, in arcseconds. Careful: because of proper motion and all,
+            you might need to query a larger region than the one you are interested in.
+        
+        Returns
+        -------
+        list[GStar]
+            List of GStar objects within the specified radius, sorted by projected separation from the current star.
         """
         gaia_ids = self.query_region(self.ra_deg[0], self.dec_deg[0], radius_arcsec)
         # remove self
