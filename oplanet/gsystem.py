@@ -438,9 +438,9 @@ class GStar:
             sep_y = x_unrotated * np.sin(rotation_rad) + y_unrotated * np.cos(rotation_rad)
 
             # d. Convert to au if needed
-            if axis_unit == "au":
-                sep_x *= star.distance_pc[0]
-                sep_y *= star.distance_pc[0]
+            if axis_unit.lower().strip() == "au":
+                sep_x *= self.distance_pc[0]
+                sep_y *= self.distance_pc[0]
 
             # e. Choose maker based on morphology
             if star.morphology == "star":
