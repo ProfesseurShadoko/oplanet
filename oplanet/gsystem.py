@@ -357,7 +357,7 @@ class GStar:
     def plot(
         self,
         date:str,
-        rotation_deg: float = 0,
+        rotation_rad: float = 0,
         radius_arcsec: float = 20,
         axis_unit:Literal["arcsec", "au"] = "arcsec",
         **kwargs
@@ -370,15 +370,36 @@ class GStar:
         ----------
         date : str
             Date in the format "YYYY-MM-DD". Important to account for proper motion of the objects.
-        rotation_deg : float, optional
-            Rotation angle to apply to the coordinates, in degrees. Default is 0 (meaning the plot
-            is epxected to be north alinged).
+        rotation_rad : float, optional
+            Rotation angle to apply to the coordinates, in radians. Default is 0 (meaning the plot
+            is expected to be north alinged). You can use the WCS information of the image to find the rotation angle.
         radius_arcsec : float, optional
             Radius of the circular region to plot, in arcseconds. Default is 20.
         axis_unit : str, optional
             Unit of the axis. Can be "arcsec" or "au". Default is "arcsec".
         **kwargs
             Additional keyword arguments to pass to plt.scatter().
+
+        Notes
+        -----
+        Here is my personal function to find the rotation angle from the WCS of an image:
+        ```python
+        def get_rotation(wcs):
+            # Use a reference pixel near the image center, then measure the local
+            # sky direction of +North in pixel space from the WCS.
+            x0 = (self.shape[1] - 1) / 2
+            y0 = (self.shape[0] - 1) / 2
+
+            sky0 = SkyCoord.from_pixel(x0, y0, wcs)
+            sky_north = sky0.directional_offset_by(0 * u.deg, 1 * u.arcsec)
+            xN, yN = sky_north.to_pixel(self.wcs)
+
+            north_vec = np.array([xN - x0, yN - y0])
+
+            # Angle between the measured north direction and the positive vertical axis.
+            rotation_angle_rad = np.arctan2(north_vec[0], north_vec[1])
+            return -rotation_angle_rad
+        ```
         """
         if not "color" in kwargs:
             kwargs["color"] = "black"
@@ -407,13 +428,14 @@ class GStar:
             star = GStar.from_id(gaia_id)
             ra, dec = star.get_position_deg(date)
 
-            # b. Convert to relative coordinates and arcsec
-            ra_rel = (ra - ra_origin) * 3600.0
-            dec_rel = (dec - dec_origin) * 3600.0
+            # b. Convert to projected relative coords
+            cos_dec = np.cos(np.radians(dec_origin)) 
+            x_unrotated = - (ra - ra_origin) * 3600.0 * cos_dec # because east is left in the plots
+            y_unrotated = (dec - dec_origin) * 3600.0
 
             # c. Apply rotation
-            sep_x = ra_rel * np.cos(np.radians(rotation_deg)) - dec_rel * np.sin(np.radians(rotation_deg))
-            sep_y = ra_rel * np.sin(np.radians(rotation_deg)) + dec_rel * np.cos(np.radians(rotation_deg))
+            sep_x = x_unrotated * np.cos(rotation_rad) - y_unrotated * np.sin(rotation_rad)
+            sep_y = x_unrotated * np.sin(rotation_rad) + y_unrotated * np.cos(rotation_rad)
 
             # d. Convert to au if needed
             if axis_unit == "au":
@@ -447,7 +469,6 @@ class GStar:
 
         plt.xlim(xmin, xmax)
         plt.ylim(ymin, ymax) # avoid changing the limits of the plot
-            
             
 
 
