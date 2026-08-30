@@ -8,19 +8,16 @@
 from oakley import *
 from .sfilter import SFilter
 
-try:
-    from astroquery.simbad import Simbad
-    from astroquery.vizier import Vizier
-    Simbad.add_votable_fields('parallax')
-    Vizier.ROW_LIMIT = -1
-    catalogs = [
-        "II/246/out",      # 2MASS
-        "II/328/allwise",  # WISE
-        "I/355/gaiadr3",    # GAIA
-    ]
-    viz = Vizier(columns=["*"], catalog=catalogs)
-except:
-    Message("Failed to import Simbad or Vizier. Check your internet connection.", "!")
+
+def _get_simbad():
+    try:
+        from astroquery.simbad import Simbad
+        Simbad.add_votable_fields('parallax')
+        _Simbad = Simbad
+        return Simbad
+    except Exception as e:
+        Message("Failed to import Simbad. Check your internet connection.", "!")
+        raise e
 
 
 from astropy import units as u
@@ -84,6 +81,7 @@ class StarInfoRetriever:
             return StarInfoRetriever._star_distance_cache[StarInfoRetriever.star_to_cache_name(star)]
         
         # 2. Query Simbad
+        Simbad = _get_simbad()
         result = Simbad.query_object(star)
         
         # 3. Extract parallax and compute distance
@@ -121,6 +119,7 @@ class StarInfoRetriever:
             return StarInfoRetriever._star_coords_cache[StarInfoRetriever.star_to_cache_name(star)]
         
         # Query Simbad
+        Simbad = _get_simbad()
         result = Simbad.query_object(star)
         if len(result) == 0:
             raise ValueError(f"Star {star} not found in Simbad database.")
@@ -188,6 +187,7 @@ class StarInfoRetriever:
         
         
         # Configure Simbad to return all identifiers
+        Simbad = _get_simbad()
         custom_simbad = Simbad()
         custom_simbad.TIMEOUT = 60
         custom_simbad.add_votable_fields('ids')  # 'ids' is the cross-id list

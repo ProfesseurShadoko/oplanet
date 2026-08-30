@@ -1,7 +1,6 @@
 
 from .star_utils import get_star_aliases
 from oakley import *
-from astroquery.gaia import Gaia
 import pandas as pd
 import numpy as np
 import os
@@ -545,6 +544,7 @@ class GStar:
                     ON gs.source_id = ap.source_id
                 WHERE gs.source_id IN ({', '.join(map(str, gaia_ids))})
         """
+        from astroquery.gaia import Gaia
         job = Gaia.launch_job_async(query)
         df:pd.DataFrame = job.get_results().to_pandas()
 
@@ -594,7 +594,7 @@ class GStar:
                 CIRCLE('ICRS', {ra_deg}, {dec_deg}, {radius_deg})
             )
         """
-
+        from astroquery.gaia import Gaia
         job = Gaia.launch_job(query)
         results = job.get_results()
 

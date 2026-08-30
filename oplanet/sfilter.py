@@ -1,6 +1,5 @@
 
 from oakley import *
-from astroquery.svo_fps import SvoFps
 from astropy import units as u
 from astropy import constants as const
 import numpy as np
@@ -146,6 +145,7 @@ class SFilter:
 
         # 2. Retrieve filter IDs from SVO
         try:
+            from astroquery.svo_fps import SvoFps
             fps = SvoFps()
             filter_list = fps.get_filter_list(self._facility).to_pandas()
         except Exception as e:
