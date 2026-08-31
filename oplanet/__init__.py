@@ -1,6 +1,6 @@
 
 
-__version__ = "2.2.8"
+__version__ = "2.2.10"
 from .oconfig import oplanet_config
 
 from .star_utils import get_photometry_jy, get_distance_pc, get_star_coords
