@@ -70,12 +70,28 @@ class GStar:
         """Gaia DR3 identifier."""
         return self.gaia_id
 
+    def __eq__(self, other) -> bool:
+        if isinstance(other, GStar):
+            return self.id == other.id
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
     @property
     def epoch(self) -> int:
         """
         Reference epoch of the Gaia DR3 astrometric solution for this star.
         """
         return int(self.df["ref_epoch"].values[0])
+
+    @property
+    def epoch_date(self) -> str:
+        """
+        Reference epoch of the Gaia DR3 astrometric solution for this star,
+        formatted as YYYY-MM-DD.
+        """
+        return Time(self.epoch, format='jyear').iso.split(" ")[0]
 
 
     # ---------------- #
@@ -315,6 +331,11 @@ class GStar:
                 "A_G (mag)": self.ag_mag,
                 "E(BP-RP) (mag)": self.ebpminrp_mag
             })
+            Message("Region", "?").list({
+                "Region IDs": self.df["region_ids"].values[0],
+                "Region Radius (arcsec)": self.df["region_radius"].values[0],
+                "Epoch": f"{self.epoch} ({self.epoch_date})"
+            })
 
 
     # ------------- #
@@ -340,6 +361,11 @@ class GStar:
     def _getfromcache(gaia_ids:list[int]) -> pd.DataFrame:
         """
         Retrieves a pandas DataFrame from the cache.
+
+        Returns
+        -------
+        pd.DataFrame
+            A pandas DataFrame containing one row for each id in the input list.
         """
         if GStar.cache_df is None:
             if os.path.exists(cache_path):
@@ -377,7 +403,7 @@ class GStar:
         radius_arcsec : float, optional
             Radius of the circular region to plot, in arcseconds. Default is 20.
         radius_arcsec_query : float, optional
-            Radius of the circular region to query the Gaia DR3 database, in arcseconds. Default to None (use radius_arcsec).
+            Radius of the circular region to query the Gaia DR3 database, in arcseconds. Default to None (use 2*radius_arcsec).
             Indeed, because of proper motion and all, ou might need to query a larger region than the one you want to plot, 
             and then only plot the objects within the smaller radius.
         axis_unit : str, optional
@@ -410,6 +436,11 @@ class GStar:
             kwargs["color"] = "black"
         if radius_arcsec_query is None:
             radius_arcsec_query = radius_arcsec
+        if radius_arcsec_query is None:
+            radius_arcsec_query = 2 * radius_arcsec
+        assert radius_arcsec_query >= radius_arcsec, f"radius_arcsec_query must be greater than or equal to radius_arcsec. Got {radius_arcsec_query} < {radius_arcsec}."
+        axis_unit = axis_unit.lower().strip()
+        assert axis_unit in ["arcsec", "au"], f"axis_unit must be 'arcsec' or 'au'. Got {axis_unit}."
 
         xmin, xmax = plt.xlim()
         ymin, ymax = plt.ylim()
@@ -417,22 +448,17 @@ class GStar:
         ra_origin, dec_origin = self.get_position_deg(date)
 
         # 1. Collect all Gaia DR3 source ids
-        gaia_ids = self.query_region(self.ra_deg[0], self.dec_deg[0], radius_arcsec_query)
+        gaia_stars = self.query_around(self.epoch_date, radius_arcsec_query)
         # remove self
-        gaia_ids = [id for id in gaia_ids if id != self.id]
-        if len(gaia_ids) == 0:
+        gaia_stars = [star for star in gaia_stars if star.id != self.id]
+        if len(gaia_stars) == 0:
             return
-
-        # 2. Query Gaia DR3 database
-        df = self.query_id(gaia_ids) # this will trigger one big query at once
-        # which will be cached
 
         # 3. Plot each object one by one
         used_markers = set()
-        for gaia_id in gaia_ids:
+        for star in gaia_stars:
 
             # a. Get coords
-            star = GStar.from_id(gaia_id)
             ra, dec = star.get_position_deg(date)
 
             # b. Convert to projected relative coords
@@ -512,7 +538,7 @@ class GStar:
 
         return np.sqrt(sep_x**2 + sep_y**2)
 
-    def query_around(self, date:str, radius_arcsec:float) -> list["GStar"]:
+    def query_around(self, date:str = None, radius_arcsec:float = 50) -> list["GStar"]:
         """
         Queries the Gaia DR3 database for objects around the current star, within a given radius.
         The results are returned as a list of GStar objects, sorted by projected separation from the current star.
@@ -520,24 +546,47 @@ class GStar:
         Parameters
         ----------
         date : str
-            Date in the format "YYYY-MM-DD". Important to account for proper motion of the objects
+            Date in the format "YYYY-MM-DD". Only used to sort the objects by separation at the end,
+            not essential. Default is None, which means the epoch of the Gaia DR3 astrometric solution for this star will be used (so 2016).
         radius_arcsec : float
             Radius of the circular region to query, in arcseconds. Careful: because of proper motion and all,
-            you might need to query a larger region than the one you are interested in.
+            you might need to query a larger region than the one you are actually interested in.
         
         Returns
         -------
         list[GStar]
             List of GStar objects within the specified radius, sorted by projected separation from the current star.
         """
+        if date is None:
+            date = self.epoch_date
+        # 1. Check the cache to see wether we already have the data for this region
+        cached_df = GStar._getfromcache([self.id])
+        cached_radius = cached_df["region_radius"].values[0]
+        if cached_radius >= radius_arcsec:
+            # we already have the data for this region, return it plainly (without filtering)
+            gaia_ids = [int(id) for id in cached_df["region_ids"].values[0].split("&") if id.strip() != ""]
+            stars = [GStar.from_id(id) for id in gaia_ids]
+            # stars.sort(key=lambda star: self.projected_separation(star, date)) # guaranteed to be sorted
+            return stars
+
+        # 2. Query the Gaia DR3 database for objects around the current star
         gaia_ids = self.query_region(self.ra_deg[0], self.dec_deg[0], radius_arcsec)
         # remove self
         gaia_ids = [id for id in gaia_ids if id != self.id]
         if len(gaia_ids) == 0:
             return []
 
+        # trigger one download for everyone, which will make things faster
+        GStar.query_id(gaia_ids)
         stars = [GStar.from_id(id) for id in gaia_ids]
         stars.sort(key=lambda star: self.projected_separation(star, date))
+
+        # 3. Update the cache with the new region information
+        region_ids_str = "&".join([str(star.id) for star in stars])
+        self.df.loc[self.df["source_id"] == self.id, "region_ids"] = region_ids_str
+        self.df.loc[self.df["source_id"] == self.id, "region_radius"] = radius_arcsec
+        GStar._add2cache(self.df)
+
         return stars
 
     @staticmethod
@@ -628,6 +677,8 @@ class GStar:
         # from astroquery.gaia import Gaia
         # job = Gaia.launch_job_async(query)
         # df:pd.DataFrame = job.get_results().to_pandas()
+        df["region_ids"] = "&"
+        df["region_radius"] = 0 # arcseconds
 
         # 3. Merge with cache if needed
         if cached_df is not None:
