@@ -27,6 +27,7 @@ cache_path = os.path.join(data_folder, "gsystem_cache.csv")
 
 class GStar:
     cache_df = None
+    url = "https://gea.esac.esa.int/tap-server/tap/sync"
 
     def __init__(self, star_name: str):
         """
@@ -539,6 +540,31 @@ class GStar:
         stars.sort(key=lambda star: self.projected_separation(star, date))
         return stars
 
+    @staticmethod
+    def _query_dr3(query:str) -> pd.DataFrame:
+        """
+        Queries the Gaia DR3 database and returns the results as a pandas DataFrame.
+        """
+        #from astroquery.gaia import Gaia
+        #job = Gaia.launch_job_async(query)
+        #df:pd.DataFrame = job.get_results().to_pandas() # way too slow
+        import requests
+        from io import StringIO
+        response = requests.get(
+            GStar.url,
+            params={
+                "REQUEST": "doQuery",
+                "LANG": "ADQL",
+                "FORMAT": "csv",
+                "QUERY": query,
+            },
+            timeout=60,
+        )
+
+        response.raise_for_status()
+
+        df = pd.read_csv(StringIO(response.text))
+        return df
 
     @staticmethod
     def query_id(gaia_ids:list[int] | int) -> pd.DataFrame:
@@ -598,9 +624,10 @@ class GStar:
                     ON gs.source_id = ap.source_id
                 WHERE gs.source_id IN ({', '.join(map(str, gaia_ids))})
         """
-        from astroquery.gaia import Gaia
-        job = Gaia.launch_job_async(query)
-        df:pd.DataFrame = job.get_results().to_pandas()
+        df: pd.DataFrame = GStar._query_dr3(query)
+        # from astroquery.gaia import Gaia
+        # job = Gaia.launch_job_async(query)
+        # df:pd.DataFrame = job.get_results().to_pandas()
 
         # 3. Merge with cache if needed
         if cached_df is not None:
@@ -648,10 +675,11 @@ class GStar:
                 CIRCLE('ICRS', {ra_deg}, {dec_deg}, {radius_deg})
             )
         """
-        from astroquery.gaia import Gaia
-        job = Gaia.launch_job(query)
-        results = job.get_results()
+        results = GStar._query_dr3(query)
+        # from astroquery.gaia import Gaia
+        # job = Gaia.launch_job(query)
+        # results = job.get_results()
 
         if len(results) == 0:
             return []
-        return np.array(results['source_id'], dtype=np.int64).astype(int).tolist()
+        return np.array(results['source_id'].values, dtype=np.int64).astype(int).tolist()
