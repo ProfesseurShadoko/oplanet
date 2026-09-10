@@ -207,7 +207,13 @@ class EInversion:
         y_lower = y_lower.reshape(output_shape)
         y_upper = y_upper.reshape(output_shape)
 
-        # 5. Return the median and the uncertainties
+        # 5. If the output parameter is a photometry, scale it back to the requested distance
+        if self.output.endswith("_jy_10pc"):
+            y_median = y_median * (distance_pc / 10)**-2
+            y_lower = y_lower * (distance_pc / 10)**-2
+            y_upper = y_upper * (distance_pc / 10)**-2
+
+        # 6. Return the median and the uncertainties
         if scalar_output:
             return y_median.item(), y_upper.item() - y_median.item(), y_lower.item() - y_median.item()
         else:
@@ -457,7 +463,7 @@ class EInversion:
             "mass_mjup": ["mass", "mass_mjup", "m"],
         } # + all filters
 
-        def get_colname(alias: str):
+        def get_colname(alias: str) -> str:
             # 1. Check wether it is a standard column name
             for colname, aliases in colnames2aliases.items():
                 if alias in aliases:
