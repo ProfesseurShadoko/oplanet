@@ -267,38 +267,183 @@ class StarInfoRetriever:
             self._check_wise4()
             self.add_to_cache()
         self._fit_photometry()
-        
-        
+
+
     def _load_photometry(self) -> None:
+        import requests
+        from io import BytesIO
+
+        with Message(f"Retrieving photometry for star {cstr(self.star).green()} with radius {cstr(self.radius).green()} arcsec", "#"):
+            # 1. Query SED from Vizier
+            try:
+                Message(f"Trying star name: {cstr(self.star).green()}")
+                response = requests.get(
+                    f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
+                    timeout=(10, 30),
+                )
+                response.raise_for_status()
+                sed = Table.read(BytesIO(response.content), format="votable")
+            except Exception as e1:
+                with Message("An exception occured while retrieving photometry. Trying different star names.", "!"):
+                    Message.print(e1)
+                aliases = StarInfoRetriever.get_star_aliases(self.star)
+                for alias in aliases:
+                    with Message(f"Trying star name: {cstr(alias).green()}"):
+                        try:
+                            response = requests.get(
+                                f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
+                                timeout=(10, 30),
+                            )
+                            response.raise_for_status()
+                            sed = Table.read(BytesIO(response.content), format="votable")
+                            Message("The retrieval was successful, moving on!", "#")
+                            break
+                        except Exception as e:
+                            Message("An error occured while retrieving the photometry:", "!").print(e)
+                            continue
+                else:
+                    Message(f"Unable to retrieve photometry for {self.star}.", "!")
+                    raise e1
+                
+
+            self.df = sed.to_pandas()
+            Message.print(f"{len(self.df)} photometric measurements retrieved.")
+            
+            # 2. Keep only relevant filters
+            mask = self.df["sed_filter"].isin(StarInfoRetriever.photometric_points)
+            self.df = self.df[mask].reset_index(drop=True)
+            Message.print(f"{(~mask).sum()} points dropped (keeping only {StarInfoRetriever.photometric_points[0]}, {StarInfoRetriever.photometric_points[1]}, ...).")
+
+            # 3. Keep only relevant columns
+            self.df = self.df[["sed_filter", "sed_freq", "sed_flux"]]
+            
+            # 4. Remove duplicate measurements
+            is_duplicate = self.df.duplicated(keep='first') # no subset => remove identical rows
+            self.df = self.df[~is_duplicate].reset_index(drop=True)
+            Message.print(f"{is_duplicate.sum()} duplicate points dropped.")
+            
+            self.df = self.df.copy(deep=True)
+            
+            # 5. Sort by frequency
+            self.df.sort_values(by=["sed_freq"], inplace=True)
+            self.df = self.df[::-1].reset_index(drop=True) # sort by wavelength = frequency^-1
+            
+            # 6. Get sorted filter names
+            self.filters = self.df["sed_filter"].unique().tolist()
+            
+            # 7. Define loss function
+            def loss(_df):
+                loss_value = 0.0
+                
+                # compute discrete second derivative at each filter
+                for i in range(len(self.filters) - 2):
+                    filter1 = self.filters[i]
+                    filter2 = self.filters[i+1]
+                    filter3 = self.filters[i+2]
+                    
+                    freq1 = _df[_df["sed_filter"] == filter1]["sed_freq"].values[0]
+                    freq2 = _df[_df["sed_filter"] == filter2]["sed_freq"].values[0]
+                    freq3 = _df[_df["sed_filter"] == filter3]["sed_freq"].values[0]
+                    
+                    dfreq12 = freq2 - freq1
+                    dfreq23 = freq3 - freq2
+                    dfreq13 = freq3 - freq1
+                    
+                    # gather all measurements for filter1 and filter2
+                    mask1 = _df["sed_filter"] == filter1
+                    mask2 = _df["sed_filter"] == filter2
+                    mask3 = _df["sed_filter"] == filter3
+                    
+                    flux1 = _df[mask1]["sed_flux"].values
+                    flux2 = _df[mask2]["sed_flux"].values
+                    flux3 = _df[mask3]["sed_flux"].values
+                    
+                    # compute all second derivative combinations
+                    for f1 in flux1: # this is time consuming, TODO: think of something better (maybe don't recompute every second derivative)
+                        for f2 in flux2:
+                            for f3 in flux3:
+                                d12 = (f2 - f1) / dfreq12
+                                d23 = (f3 - f2) / dfreq23
+                                dd13 = (d23 - d12) / dfreq13
+                                if dd13 > 0:
+                                    loss_value += dd13
+                                    # i want a concave function => only negative second derivatives
+                                    # => penalize positive second derivatives
+                                
+                                else:
+                                    loss_value += 1e-3 * abs(dd13) # small penalty for negative second derivatives --> I don't want a too strong second derivative
+                return loss_value
+
+            self._original_df = self.df.copy(deep=True)
+
+            # 8. Clean data to enforce concavity
+            with Message(f"Choosing {len(self.filters)} points out of {len(self.df)} to enforce concavity of SED..."):
+                # how many points need to be dropped?
+                n_droped = len(self.df) - len(self.filters) # we want only one point per filter
+                for _ in ProgressBar(range(n_droped), size=n_droped):
+                    duplicate_filters = self.df["sed_filter"][self.df["sed_filter"].duplicated(keep=False)].unique().tolist()
+                    
+                    # find the best point to drop
+                    minimal_loss = np.inf
+                    best_removal = None
+                    
+                    # gather all indices of filters with duplicates
+                    all_indices = self.df.index[self.df["sed_filter"].isin(duplicate_filters)].tolist()
+                    for index in all_indices:
+                        _df = self.df.drop(index)
+                        current_loss = loss(_df)
+                        if current_loss < minimal_loss:
+                            minimal_loss = current_loss
+                            best_removal = index
+                    self.df.drop(best_removal, inplace=True)
+            
+            # 9. Compute wavelengths
+            self.df["wavelength_m"] = ( const.c.to("um/s") / (self.df["sed_freq"].values * u.GHz) ).to(u.m).value
+            self.df["flux_Jy"] = self.df["sed_flux"].values# * u.Jy
+            self._original_df["wavelength_m"] = ( const.c.to("um/s") / (self._original_df["sed_freq"].values * u.GHz) ).to(u.m).value
+            self._original_df["flux_Jy"] = self._original_df["sed_flux"].values
+
+        
+    def _load_photometry_old(self) -> None:
         """
         Download photometry from Vizier and remove anomalous points.
         Sets `self.df` and `self.wavelengths`, `self.fluxes`.
         """
-        
+
+        import time
         with Message(f"Retrieving photometry for star {cstr(self.star).green()} with radius {cstr(self.radius).green()} arcsec", "#"):
             # 1. Query SED from Vizier
-            try:
-                sed = Table.read(
-                    f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
-                    format="votable"
-                )
-            except Exception as e:
-                
-                with Message("An exceptiuon occured while retrieving photometry. Trying different star names.", "!"):
-                    Message.print(e)
+            for i in range(2):
+                try:
+                    time.sleep(1)
+                    Message(f"Trying star name: {cstr(self.star).green()}")
+                    sed = Table.read(
+                        f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
+                        format="votable"
+                    )
+                    break
+                except Exception as e1:
+                    if i == 1:
+                        with Message("An exception occured while retrieving photometry. Trying different star names.", "!"):
+                            Message.print(e1)
+            else:
                 aliases = StarInfoRetriever.get_star_aliases(self.star)
                 for alias in aliases:
-                    try:
-                        sed = Table.read(
-                            f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
-                            format="votable"
-                        )
-                        break
-                    except Exception as e:
-                        continue
+                    with Message(f"Trying star name: {cstr(alias).green()}"):
+                        try:
+                            time.sleep(1)
+                            sed = Table.read(
+                                f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
+                                format="votable"
+                            )
+                            Message("The retrieval was successful, moving on!", "#")
+                            break
+                        except Exception as e:
+                            Message("An error occured while retrieving the photometry:", "!").print(e)
+                            continue
                 else:
                     Message(f"Unable to retrieve photometry for {self.star}.", "!")
-                    raise e
+                    raise e1
 
             self.df = sed.to_pandas()
             Message.print(f"{len(self.df)} photometric measurements retrieved.")
