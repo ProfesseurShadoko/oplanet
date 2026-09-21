@@ -624,7 +624,96 @@ class EInversion:
                 )
 
 
+class FallbackEInversion(EInversion):
 
+    def __init__(
+        self,
+        model: Literal["atmo", "hades", "linder", "sonora"] = "hades,atmo",
+        scheme: str = "f1140c,age,met->mass"
+    ):
+        """
+        Parameters
+        ----------
+        model : str
+            The evolutionary model to use. Must be one of ["atmo", "hades", "linder", "sonora"]. You can pass multiple models
+            separated by commas, in which case, for every individual prediction, the first model that does not return
+            NaN will be used.
+        scheme : str
+            The scheme defining the input and output parameters. See Notes for more details.
+
+        Notes
+        -----
+        The units are the following:
+        - photometry: Jy
+        - age: Myr
+        - metallicity: dex (log10(Z/Z_sun))
+        - mass: MJup
+        - radius: RJup
+        - temperature: K
+
+        The `scheme` is a string that defines the input parameters and the output of the interpolation.
+        The input parameters are seprated by commas, and the output is separated by an arrow (`->`).
+        The `scheme` will be converted internally to the column names present in the CSV files.
+
+        Only one output parameter is allowed, but multiple input parameters are allowed. The recommended
+        schemes are `filter,age,met -> any` or `any,age,met -> filter`. Having more or less than three input 
+        parameters is not recommended, as the grid is basically three dimensional. 
+
+        If the code complains about the filter name, you might need to use the full SVO filter ID (which you
+        can get from SFilter). Instead of "f1140c", put "JWST/MIRI.F1140C".      
+        """
+        models = [m.strip() for m in model.split(",")]
+        super().__init__(model=models[0], scheme=scheme)
+
+        self._fallback_models = []
+        for m in models[1:]:
+            try:
+                self._fallback_models.append(EInversion(model=m, scheme=scheme))
+            except Exception as e:
+                Message(f"Skipping fallback model '{m}':", "!").print(e)
+
+    def __call__(self, *inputs:np.ndarray, distance_pc: float=10) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Parameters
+        ----------
+        *inputs : np.ndarray | float
+            Input parameters in the order defined by the scheme.
+        distance_pc : float, optional
+            Distance in parsecs. Default is 10 pc, which is the distance at which the photometry is defined.
+            If one of the inputs is a photometry, for a target at 30 pc, one should either mulitply the
+            input photometry by `(30/10)**2 = 9`, or set `distance_pc=30` to automatically scale the photometry to 10 pc.
+
+        Returns
+        -------
+        y_median : np.ndarray
+            Median prediction of the output parameter.
+        sigma_upper : np.ndarray
+            Upper prediction of the output parameter (84th percentile - median).
+        sigma_lower : np.ndarray
+            Lower prediction of the output parameter (16th percentile - median), hence is negative.
+        
+        Uncertainties are only available in the HADES grid. Otherwise,
+        the lower and upper predictions will be zero.
+        """
+
+        scalar_output = all(np.ndim(inp) == 0 for inp in inputs)
+        y_median, sigma_upper, sigma_lower = super().__call__(*inputs, distance_pc=distance_pc)
+        y_median = np.atleast_1d(y_median)
+        sigma_upper = np.atleast_1d(sigma_upper)
+        sigma_lower = np.atleast_1d(sigma_lower)
+
+        for model in self._fallback_models:
+            mask = np.isnan(y_median)
+            if not np.any(mask):
+                break
+            y_median_fallback, sigma_upper_fallback, sigma_lower_fallback = model(*inputs, distance_pc=distance_pc)
+            y_median[mask] = np.atleast_1d(y_median_fallback)[mask]
+            sigma_upper[mask] = np.atleast_1d(sigma_upper_fallback)[mask]
+            sigma_lower[mask] = np.atleast_1d(sigma_lower_fallback)[mask]
+
+        if scalar_output:
+            return y_median.item(), sigma_upper.item(), sigma_lower.item()
+        return y_median, sigma_upper, sigma_lower
 
 
 
