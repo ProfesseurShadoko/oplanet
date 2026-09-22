@@ -8,11 +8,15 @@
 from oakley import *
 from .sfilter import SFilter
 
-
+_Simbad = None
 def _get_simbad():
+    global _Simbad
+    if _Simbad is not None:
+        return _Simbad
     try:
         from astroquery.simbad import Simbad
         Simbad.add_votable_fields('parallax')
+        Simbad.add_votable_fields('sptype')
         _Simbad = Simbad
         return Simbad
     except Exception as e:
@@ -54,6 +58,7 @@ class StarInfoRetriever:
     _star_distance_cache = {}
     _star_aliases_cache = {}
     _star_coords_cache = {}
+    _star_sptype_cache = {}
         
     # ---------------- #
     # !-- Distance --! #
@@ -75,7 +80,7 @@ class StarInfoRetriever:
             Distance to the star in parsecs.
         """
         star = StarInfoRetriever.get_star_name(star)
-        
+
         # 1. Check cache
         if StarInfoRetriever.star_to_cache_name(star) in StarInfoRetriever._star_distance_cache:
             return StarInfoRetriever._star_distance_cache[StarInfoRetriever.star_to_cache_name(star)]
@@ -121,7 +126,7 @@ class StarInfoRetriever:
         # Query Simbad
         Simbad = _get_simbad()
         result = Simbad.query_object(star)
-        if len(result) == 0:
+        if result is None or len(result) == 0:
             raise ValueError(f"Star {star} not found in Simbad database.")
     
         ra_kwd, dec_kwd = "RA", "DEC"
@@ -132,8 +137,48 @@ class StarInfoRetriever:
         coords = (result[0][ra_kwd], result[0][dec_kwd])
         StarInfoRetriever._star_coords_cache[StarInfoRetriever.star_to_cache_name(star)] = coords
         return StarInfoRetriever.get_star_coords(star)
-    
-    
+
+    @staticmethod
+    def get_star_sptype(star:str) -> str:
+        """
+        Get the spectral type of a star using Simbad.
+
+        Parameters
+        ----------
+        star : str
+            Name of the star. Must be compatible with Simbad database.
+
+        Returns
+        -------
+        str
+            Spectral type of the star.
+        """
+        star = StarInfoRetriever.get_star_name(star)
+        
+        # 1. Check cache
+        if StarInfoRetriever.star_to_cache_name(star) in StarInfoRetriever._star_sptype_cache:
+            return StarInfoRetriever._star_sptype_cache[StarInfoRetriever.star_to_cache_name(star)]
+
+        # 2. Query Simbad
+        Simbad = _get_simbad()
+        result = Simbad.query_object(star)
+        if result is None or len(result) == 0:
+            raise ValueError(f"Star {star} not found in Simbad database.")
+
+        # 3. Extract spectral type
+        sptype_kwd = "SP_TYPE"
+        try:
+            result[sptype_kwd]
+        except KeyError:
+            sptype_kwd = "sp_type"
+        sptype = result[sptype_kwd][0]
+
+        # 4. Cache the result
+        StarInfoRetriever._star_sptype_cache[StarInfoRetriever.star_to_cache_name(star)] = sptype
+
+        return sptype
+
+
     @staticmethod
     def get_star_name(star_name:str) -> str:
         """
@@ -872,6 +917,22 @@ def get_distance_pc(star:str) -> float:
     """
     return StarInfoRetriever.get_star_distance_pc(star)
 
+def get_spectral_type(star:str) -> str:
+    """
+    Convenience function to get the spectral type of a star.
+
+    Parameters
+    ----------
+    star : str
+        Name of the star.
+
+    Returns
+    -------
+    str
+        Spectral type of the star.
+    """
+    return StarInfoRetriever.get_star_sptype(star)
+
 
 
 def get_star_aliases(star_name: str) -> list[str]:
@@ -983,4 +1044,5 @@ if __name__ == "__main__":
         Message.print(f"Photometry at F1130W: {phot*1e6:.2e} (expected ~ 1.47e+04 uJy at 11.56 um)")
         phot1156 = get_photometry_jy(star, 11.56e-6)
         Message.print(f"Photometry at 11.56 um: {phot1156*1e6:.2e} (expected ~ 1.47e+04 uJy at 11.56 um)")
+
     
