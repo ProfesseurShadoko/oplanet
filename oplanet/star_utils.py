@@ -35,6 +35,7 @@ import numbers
 from astropy.table import Table
 from urllib.parse import quote
 import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
 
 # find the directory of the current python file
 import os
@@ -636,36 +637,86 @@ class StarInfoRetriever:
         
         
         
-    def get_photometry(self, wavlengths: np.ndarray) -> np.ndarray:
+    def get_photometry(self, wavelengths: np.ndarray, T_eff: float = None) -> np.ndarray:
         """
         Get the stellar flux at given wavelengths by interpolating the fitted photometry.
 
         Parameters
         ----------
-        wavlengths : np.ndarray
+        wavelengths : np.ndarray
             Wavelengths at which to get the stellar flux. In meters.
+        extrapolate_bb : bool, optional
+            If True, extrapolate the fluxes using a blackbody fit to the last three photometric points
+            if any of the requested wavelengths are outside the range of the fitted photometry. Default is True.
+            If a float is passed, it will be used as the temperature of the blackbody. For instance, `GStar` class
+            sometimes gives access to T_eff based on Gaia photometry.
 
         Returns
         -------
         np.ndarray
             Stellar flux at the given wavelengths. In Jy.
         """
-        interp_func = interp1d(
+        # 1. Interpolate / extrapolate wavelengths
+        interp_func_extrapolate = interp1d(
             np.log(self.wl_grid),
             np.log(self.flux_grid),
             kind="linear",
             bounds_error=False,
             fill_value="extrapolate"
         )
-        fluxes = np.exp(interp_func(np.log(wavlengths)))
-        return fluxes
+        interp_func = interp1d(
+            np.log(self.wl_grid),
+            np.log(self.flux_grid),
+            kind="linear",
+            bounds_error=False,
+            fill_value=np.nan
+        )
+        fluxes_extrapolated = np.exp(interp_func_extrapolate(np.log(wavelengths)))
+        fluxes = np.exp(interp_func(np.log(wavelengths)))
+
+        # check from where we need to patch up
+        data_wl = self.df["wavelength_m"].values
+        data_flux = self.df["flux_Jy"].values
+        left_wl = data_wl[0]
+        left_flux = data_flux[0]
+        right_wl = data_wl[-3:]
+        right_flux = data_flux[-3:]
+        extrapolated_mask = np.isnan(fluxes)
+        extrapolated_mask_left = (wavelengths <= (left_wl+right_wl[-1])/2) & extrapolated_mask
+        extrapolated_mask_right = (wavelengths > (left_wl+right_wl[-1])/2) & extrapolated_mask
+
+        # 2. If any NaN value => use provided T_eff to extrapolate using a blackbody curve
+        if T_eff is not None and np.any(np.isnan(fluxes)):
+            # > a. Prepare the blackbody curve
+            def blackbody(wavelength, T):
+                h = const.h.value
+                c = const.c.value
+                k = const.k_B.value
+
+                nu = c / wavelength
+
+                return (
+                    2 * h * nu**3 / c**2
+                    / np.expm1(h * nu / (k * T))
+                )
+
+            # scale it to match the last point of the non extrapolated photometry
+            left_flux_bb = blackbody(left_wl, T_eff)
+            right_flux_bb = blackbody(right_wl, T_eff)
+            scale_left = left_flux / left_flux_bb
+            scale_right = np.exp(np.mean(np.log(right_flux / right_flux_bb))) # geometric mean to avoid outliers
+
+            fluxes_extrapolated[extrapolated_mask_left] = blackbody(wavelengths[extrapolated_mask_left], T_eff) * scale_left
+            fluxes_extrapolated[extrapolated_mask_right] = blackbody(wavelengths[extrapolated_mask_right], T_eff) * scale_right
+
+        return fluxes_extrapolated
     
 
     # ------------ #
     # !-- Plot --! #
     # ------------ #
     
-    def plot(self, show:bool = True, close:bool = True) -> None:
+    def plot(self, T_eff:float|None = None, show:bool = True, close:bool = True) -> None:
         plt.figure(figsize=(15,8))
         
         # 1. Scatter original data
@@ -704,7 +755,7 @@ class StarInfoRetriever:
         log_extrapolation = np.log10(2) # if extrapolation must be 10 times smaller/larger than the min/max wavelength, put 10 here
         
         x_extrapolated = np.logspace(np.log10(self.wl_grid.min()) - log_extrapolation, np.log10(self.wl_grid.min()), 100) # in m
-        y_extrapolated = self.get_photometry(x_extrapolated) # get_photometry expects m
+        y_extrapolated = self.get_photometry(x_extrapolated, T_eff=T_eff) # get_photometry expects m
         plt.plot(
             x_extrapolated*1e6,
             y_extrapolated,
@@ -715,7 +766,7 @@ class StarInfoRetriever:
             zorder=5,
         )
         x_extrapolated = np.logspace(np.log10(self.wl_grid.max()), np.log10(self.wl_grid.max()) + log_extrapolation, 100)
-        y_extrapolated = self.get_photometry(x_extrapolated)
+        y_extrapolated = self.get_photometry(x_extrapolated, T_eff=T_eff)
         plt.plot(
             x_extrapolated*1e6, # plot in um
             y_extrapolated,
@@ -724,8 +775,35 @@ class StarInfoRetriever:
             linestyle="--",
             zorder=5,
         )
-        
-        
+        # plot bb alone
+        if T_eff is not None:
+            def blackbody(wavelength, T):
+                h = const.h.value
+                c = const.c.value
+                k = const.k_B.value
+
+                nu = c / wavelength
+
+                return (
+                    2 * h * nu**3 / c**2
+                    / np.expm1(h * nu / (k * T))
+                )
+            bb = blackbody(self.wl_grid, T_eff)
+            # scale it to match the last point of the non extrapolated photometry
+            right_flux_bb = blackbody(self.df["wavelength_m"].values[-3:], T_eff)
+            right_flux = self.df["flux_Jy"].values[-3:]
+            bb = bb * np.exp(np.mean(np.log(right_flux / right_flux_bb))) # geometric mean to avoid outliers
+            plt.plot(
+                self.wl_grid*1e6,
+                bb,
+                color="blue",
+                alpha=0.7,
+                linestyle="--",
+                label=f"Blackbody (T={T_eff} K)",
+                zorder=5,
+            )
+            
+            
         # 5. Finalize plot
         plt.xscale("log")
         plt.yscale("log")
@@ -829,7 +907,7 @@ StarInfoRetriever.load_json()
 
 
 
-def get_photometry_jy(star:str, wavelength_or_filter: float|np.ndarray|str, show:bool = False) -> float:
+def get_photometry_jy(star:str, wavelength_or_filter: float|np.ndarray|str, T_eff:float|None = None, show:bool = False) -> float:
     """
     Convenience function to get the stellar flux (in Jy) at given wavelengths for a given star.
 
@@ -841,6 +919,11 @@ def get_photometry_jy(star:str, wavelength_or_filter: float|np.ndarray|str, show
         Wavelength(s) at which to get the stellar flux. In meters.
         If a string is provided (e.g. `F1500W` or `JWST/MIRI.F1500W`) it will
         be used to load a `SFilter` object (see its documentation for more information).
+    T_eff : float, optional
+        Effective temperature of the star in Kelvin. If provided, it will be used to extrapolate
+        the fluxes using a blackbody curve. Otherwise, the fluxes will be extrapolated using the fitted spline.
+        Note that at high wavelengths, the slope of the blackbody curve is anyway independant of the stellar temeprature,
+        so you can basically put 3000K for everyone, as this will stay roughly valid for any T > 3000K.
     show : bool, optional
         Whether to show the photometry plot, by default False.
 
@@ -865,7 +948,10 @@ def get_photometry_jy(star:str, wavelength_or_filter: float|np.ndarray|str, show
             was_scalar = True # we will return a scalar at the end instead of an array
 
     # 3. Get flux
-    flux_jy = retriever.get_photometry(wavelength) # flux is an array in Jy
+    flux_jy = retriever.get_photometry(
+        wavelength,
+        T_eff=T_eff
+    ) # flux is an array in Jy
 
     if isinstance(wavelength_or_filter, str):
         flux_jy = sfilter.photometry(
@@ -878,7 +964,7 @@ def get_photometry_jy(star:str, wavelength_or_filter: float|np.ndarray|str, show
             flux_jy = flux_jy[0]
     
     if show:
-        retriever.plot(show=False, close=False)
+        retriever.plot(show=False, close=False, T_eff=T_eff)
         # add the requested wavelength and retrieved flux
         plt.scatter(
             wavelength*1e6 if not isinstance(wavelength_or_filter, str) else sfilter.wl_central*1e6, # plot in um
