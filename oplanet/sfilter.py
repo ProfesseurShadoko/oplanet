@@ -578,7 +578,6 @@ class SFilter:
         detector_type_kernel = wavelengths if self.detector_type == "photon_counter" else 1
         temperature_kernel = 1
         if T_eff is not None:
-            from astropy import constants as const
             h = const.h.value
             c = const.c.value
             k = const.k_B.value
