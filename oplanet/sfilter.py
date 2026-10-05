@@ -62,6 +62,9 @@ class SFilter:
         (e.g. photomatry) should be unaffected. For anything related to the absolute transmission
         (e.g. photon count), use data from `pandeia` instead.
         """
+        if isinstance(filter_name, SFilter):
+            filter_name = filter_name.id
+
         if "/" in filter_name and "." in filter_name:
             facility = filter_name.split("/")[0]
             instrument = filter_name.split("/")[1].split(".")[0]
@@ -240,6 +243,20 @@ class SFilter:
         Unique SVO identifier for the filter (e.g. "JWST/MIRI.F1500W").
         """
         return self._filter_info["filter_id"]
+
+    @property
+    def instrument(self) -> str:
+        """
+        Instrument for the filter (e.g. "MIRI").
+        """
+        return self.id.split("/")[1].split(".")[0]
+
+    @property
+    def facility(self) -> str:
+        """
+        Facility for the filter (e.g. "JWST").
+        """
+        return self.id.split("/")[0]
 
     def __str__(self) -> str:
         return self.name
@@ -517,7 +534,7 @@ class SFilter:
     # !-- Convolution --! #
     # ------------------- #
 
-    def support(self, N: int = 10, flux_type:Literal["lambda", "nu"] = "lambda") -> np.ndarray:
+    def support(self, N: int = 10, flux_type:Literal["lambda", "nu"] = "lambda", T_eff: float | None = None) -> np.ndarray:
         """
         Returns the optimal wavelengths to consider to best sample from the filter
         transmission curve. In other words, the question is the following. I want to compute
@@ -543,7 +560,13 @@ class SFilter:
             Type of flux you want to propagate through the filter, which slightly changes the bins
             so that the average still approximates the integral. See the `photometry` method for more
             details.
-        
+        T_eff : float, optional
+            Effective temperature of the source (in Kelvin). Do not use this parameter if your simulation scales
+            the flux at each wavelength (in other words, if your simulation has a spectrum as input!). Otherwise
+            you would be double counting.
+            However, if your simulation has a single flux as input (a flat spectrum) and you wish a wavelength distribution
+            that will contain the flux normalization, then you can specify the effective temperature.
+            
         Returns
         -------
         np.ndarray
@@ -553,7 +576,16 @@ class SFilter:
         wavelengths = self.wl
         frequency_conversion_kernel = const.c.value / wavelengths**2 if flux_type == "nu" else 1
         detector_type_kernel = wavelengths if self.detector_type == "photon_counter" else 1
-        weights = self.tr * frequency_conversion_kernel * detector_type_kernel
+        temperature_kernel = 1
+        if T_eff is not None:
+            from astropy import constants as const
+            h = const.h.value
+            c = const.c.value
+            k = const.k_B.value
+            temperature_kernel = 2*h*c**2 / wavelengths**5 * 1/(np.expm1(h*c/(wavelengths*k*T_eff)))
+
+        weights = self.tr * frequency_conversion_kernel * detector_type_kernel * temperature_kernel
+
                 
 
         # 1. Compute the cumulative distribution function (CDF) of the filter transmission curve
