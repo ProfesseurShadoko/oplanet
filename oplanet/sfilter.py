@@ -608,6 +608,31 @@ class SFilter:
         return np.array(optimal_wavelengths)
 
 
+
+    def transmission_at(self, wavelength: float | np.ndarray) -> float | np.ndarray:
+        """
+        Returns the transmission of the filter at a given wavelength (in meters).
+        If the wavelength is outside the range of the filter, returns 0.
+
+        Parameters
+        ----------
+        wavelength : float or np.ndarray
+            Wavelength(s) at which to evaluate the transmission (in meters).
+
+        Returns
+        -------
+        float or np.ndarray
+            Transmission(s) at the given wavelength(s).
+
+        Notes
+        -----
+        This might be useful for plots. Should probably not be used
+        directly for actual science, as you probably wan't
+        to consider bins instead (see `photometry` method for isntance).
+        """
+        return np.interp(wavelength, self.wl, self.tr, left=0, right=0)
+
+
     # ------------- #
     # !-- Plots --! #
     # ------------- #
