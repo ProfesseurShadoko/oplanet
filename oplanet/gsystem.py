@@ -10,6 +10,7 @@ import astropy.units as u
 
 from typing import Literal
 import matplotlib.pyplot as plt
+from .star_utils import get_distance_pc
 
 # ------------- #
 # !-- Files --! #
@@ -121,13 +122,16 @@ class GStar:
         
         pmra = self.pmra_masyr[0]
         pmdec = self.pmdec_masyr[0]
+
+        pmra = 0.0 if np.isnan(pmra) else pmra
+        pmdec = 0.0 if np.isnan(pmdec) else pmdec
         
         coord_ref = SkyCoord(
             ra = self.ra_deg[0] * u.deg,
             dec = self.dec_deg[0] * u.deg,
             distance = Distance(parallax=plx * u.mas, allow_negative=True),
-            pm_ra_cosdec = (0.0 if np.isnan(pmra) else pmra) * u.mas / u.yr,
-            pm_dec = (0.0 if np.isnan(pmdec) else pmdec) * u.mas / u.yr,
+            pm_ra_cosdec = pmra * u.mas / u.yr,
+            pm_dec = pmdec * u.mas / u.yr,
             radial_velocity = rv * u.km / u.s,
             obstime = Time(self.epoch, format='jyear'),
             frame = 'icrs'
@@ -182,6 +186,13 @@ class GStar:
             return np.array([np.nan, np.nan, np.nan])
         distance = 1000.0 / parallax_mas
         distance_err = (self.parallax_mas[1] / parallax_mas**2) * 1000.0
+
+        if np.isnan(distance):
+            try:
+                distance = get_distance_pc(self.star_name)
+            except:
+                pass
+
         return np.array([distance, distance_err, -distance_err])
 
 
@@ -221,6 +232,37 @@ class GStar:
     def ruwe(self) -> np.ndarray:
         """Renormalized Unit Weight Error (RUWE) for Gaia DR3 astrometry."""
         return self._get_valnan("ruwe")
+
+    @property
+    def frac(self) -> np.ndarray:
+        """
+        Fraction of images where a second source was detected in the same Gaia pixel.
+        Between 0 and 1.
+        """
+        return self._get_valnan("ipd_frac_multi_peak") / 100.0
+
+    @property
+    def closest_companion(self) -> "GStar":
+        """
+        Returns the closest companion to this star visible in the field of view, in au, if any.
+        If no companion is found, returns None.
+        """
+        closest_id = self.df["region_closest_companion_id"].values[0]
+        if np.isnan(closest_id):
+            return None
+        return GStar.from_id(int(closest_id))
+
+    @property
+    def closest_companion_distance_pc(self) -> float:
+        """
+        Returns the distance to the closest companion to this star visible in the field of view, in au, if any.
+        If no companion is found, returns np.nan.
+        """
+        closest_companion = self.closest_companion
+        if closest_companion is None:
+            return np.nan
+        return self.distance3d(closest_companion)
+    
 
 
     # ------------------ #
@@ -309,14 +351,17 @@ class GStar:
                 "Dec (deg)": self.dec_deg,
                 "PM RA (mas/yr)": self.pmra_masyr,
                 "PM Dec (mas/yr)": self.pmdec_masyr,
-                "Radial Velocity (km/s)": self.rv_kms
+                "Radial Velocity (km/s)": self.rv_kms,
+                "Distance (pc)": self.distance_pc,
             })
             Message("Photometry:", "?").list({
                 "G (mag)": self.g_mag,
                 "BP (mag)": self.bp_mag,
                 "RP (mag)": self.rp_mag,
                 "BP-RP (mag)": self.bprp,
-                "RUWE": self.ruwe
+                "RUWE": self.ruwe,
+                "Frac": self.frac,
+                "Closest Companion (pc)": self.closest_companion_distance_pc
             })
             Message("Morphology:", "?").list({
                 "Morphology": self.morphology,
@@ -334,7 +379,7 @@ class GStar:
             Message("Region", "?").list({
                 "Region IDs": self.df["region_ids"].values[0],
                 "Region Radius (arcsec)": self.df["region_radius"].values[0],
-                "Epoch": f"{self.epoch} ({self.epoch_date})"
+                "Epoch": f"{self.epoch} ({self.epoch_date})",
             })
 
 
@@ -538,6 +583,41 @@ class GStar:
 
         return np.sqrt(sep_x**2 + sep_y**2)
 
+    def distance3d(self, other:"GStar") -> float:
+        """
+        Computes the 3D distance between two GStar objects, in parsecs.
+
+        Parameters
+        ----------
+        other : GStar
+            Another GStar object to compute the distance from.
+        
+        Returns
+        -------
+        float
+            3D distance in au.
+        """
+        d1 = self.distance_pc[0]
+        d2 = other.distance_pc[0]
+
+        if np.isnan(d1) or np.isnan(d2):
+            return np.nan
+
+        ra1, dec1 = self.ra_deg[0], self.dec_deg[0]
+        ra2, dec2 = other.ra_deg[0], other.dec_deg[0]
+
+        # Convert to Cartesian coordinates
+        x1 = d1 * np.cos(np.radians(dec1)) * np.cos(np.radians(ra1))
+        y1 = d1 * np.cos(np.radians(dec1)) * np.sin(np.radians(ra1))
+        z1 = d1 * np.sin(np.radians(dec1))
+
+        x2 = d2 * np.cos(np.radians(dec2)) * np.cos(np.radians(ra2))
+        y2 = d2 * np.cos(np.radians(dec2)) * np.sin(np.radians(ra2))
+        z2 = d2 * np.sin(np.radians(dec2))
+
+        distance_pc = np.sqrt((x2 - x1)**2 + (y2 - y1)**2 + (z2 - z1)**2)
+        return distance_pc# * u.pc.to(u.au) # convert to au
+
     def query_around(self, date:str = None, radius_arcsec:float = 50) -> list["GStar"]:
         """
         Queries the Gaia DR3 database for objects around the current star, within a given radius.
@@ -580,11 +660,15 @@ class GStar:
         GStar.query_id(gaia_ids)
         stars = [GStar.from_id(id) for id in gaia_ids]
         stars.sort(key=lambda star: self.projected_separation(star, date))
+        distance_au = [self.distance3d(star) for star in stars]
+        min_distance_id = gaia_ids[np.argmin(distance_au)] if len(distance_au) > 0 else np.nan
 
         # 3. Update the cache with the new region information
         region_ids_str = "&".join([str(star.id) for star in stars])
         self.df.loc[self.df["source_id"] == self.id, "region_ids"] = region_ids_str
         self.df.loc[self.df["source_id"] == self.id, "region_radius"] = radius_arcsec
+        self.df.loc[self.df["source_id"] == self.id, "region_closest_companion_id"] = min_distance_id
+        
         GStar._add2cache(self.df)
 
         return stars
@@ -666,7 +750,12 @@ class GStar:
                 ap.logg_gspphot, ap.logg_gspphot_lower, ap.logg_gspphot_upper,
                 ap.mh_gspphot, ap.mh_gspphot_lower, ap.mh_gspphot_upper,
                 ap.ag_gspphot, ap.ag_gspphot_lower, ap.ag_gspphot_upper,
-                ap.ebpminrp_gspphot, ap.ebpminrp_gspphot_lower, ap.ebpminrp_gspphot_upper
+                ap.ebpminrp_gspphot, ap.ebpminrp_gspphot_lower, ap.ebpminrp_gspphot_upper,
+
+                -- 6. Gaia Multiplicity Indicators
+                gs.ipd_frac_multi_peak,
+                gs.ipd_frac_odd_win,
+                gs.duplicated_source
 
                 FROM gaiadr3.gaia_source AS gs
                 LEFT OUTER JOIN gaiadr3.astrophysical_parameters AS ap
@@ -679,6 +768,7 @@ class GStar:
         # df:pd.DataFrame = job.get_results().to_pandas()
         df["region_ids"] = "&"
         df["region_radius"] = 0 # arcseconds
+        df["region_closest_companion_id"] = np.nan # au
 
         # 3. Merge with cache if needed
         if cached_df is not None:
@@ -734,3 +824,10 @@ class GStar:
         if len(results) == 0:
             return []
         return np.array(results['source_id'].values, dtype=np.int64).astype(int).tolist()
+
+
+
+if __name__ == "__main__":
+    gstar = GStar("LTT 1445 A")
+    gstar.query_around()
+    gstar.display()
