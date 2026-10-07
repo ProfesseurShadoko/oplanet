@@ -23,8 +23,9 @@ atmo_csv = os.path.join(model_folder, "atmo_2020_grid_oplanet.csv")
 hades_csv = os.path.join(model_folder, "hades_2026_grid_oplanet.csv")
 linder_csv = os.path.join(model_folder, "linder_2019_grid_oplanet.csv")
 sonora_csv = os.path.join(model_folder, "sonora_2021_grid_oplanet.csv")
+bhac_csv = os.path.join(model_folder, "bhac_2015_grid_oplanet.csv")
 
-if not all(os.path.exists(f) for f in [atmo_csv, hades_csv, linder_csv, sonora_csv]):
+if not all(os.path.exists(f) for f in [atmo_csv, hades_csv, linder_csv, sonora_csv, bhac_csv]):
     Message("Evolutionnary files are missing. Please run `python -m oplanet.setup` to download them.", "!")
 
 # -------------------- #
@@ -35,14 +36,14 @@ class EInversion:
 
     def __init__(
         self,
-        model: Literal["atmo", "hades", "linder", "sonora"] = "hades",
+        model: Literal["atmo", "hades", "linder", "sonora", "bhac"] = "hades",
         scheme: str = "f1140c,age,met->mass"
     ):
         """
         Parameters
         ----------
         model : str
-            The evolutionary model to use. Must be one of ["atmo", "hades", "linder", "sonora"].
+            The evolutionary model to use. Must be one of ["atmo", "hades", "linder", "sonora", "bhac"].
         scheme : str
             The scheme defining the input and output parameters. See Notes for more details.
 
@@ -71,7 +72,7 @@ class EInversion:
 
         # 1. Load the grid of models
         self.df = pd.read_csv(
-            {"atmo": atmo_csv, "hades": hades_csv, "linder": linder_csv, "sonora": sonora_csv}[self.model]
+            {"atmo": atmo_csv, "hades": hades_csv, "linder": linder_csv, "sonora": sonora_csv, "bhac": bhac_csv}[self.model]
         )
         
         # 2. Parse the scheme string into input and output parameters
