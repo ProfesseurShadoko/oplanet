@@ -11,6 +11,9 @@ import astropy.units as u
 from typing import Literal
 import matplotlib.pyplot as plt
 from .star_utils import get_distance_pc
+import requests
+import io
+from astropy.table import Table
 
 # ------------- #
 # !-- Files --! #
@@ -23,6 +26,28 @@ data_folder = os.path.join(
 os.makedirs(data_folder, exist_ok=True)
 cache_path = os.path.join(data_folder, "gsystem_cache.csv")
 
+
+# ------------------------ #
+# !-- Detection Limits --! #
+# ------------------------ #
+
+df_b19 = pd.DataFrame({
+    "dmag": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0],
+    "sep": [0.46, 0.52, 0.56, 0.59, 0.77, 0.88, 0.93, 0.93, 1.0, 1.2, 1.6, 1.9, 2.4, 3.4, 4.8, 5.7, 7.3, 8.6, 9.6]
+})
+df_eb24 = pd.DataFrame({
+    "dmag": [0, 1, 2, 3, 4, 6, 8],
+    "sep": [2.75237273511648, 3.334039947239495, 3.799115274525111, 4.865380236794171, 9.387143290831808, 10.83959471766849, 14.27424863387978]
+})
+df_t23 = pd.DataFrame({
+    "dmag": [3.221393034825871, 3.3644278606965177, 3.5074626865671643, 3.650497512437811, 3.7997512437810945, 3.9427860696517416, 4.085820895522389, 4.253731343283582, 4.253731343283582, 4.253731343283582],
+    "sep": [0.2086529169219597, 0.25965009702028824, 0.32204285569357344, 0.4007538449932237, 0.5003576861902304, 0.6226508772591572, 0.7748339351065772, 0.9868351366479787, 1.0827604255439696, 1.4444823187632299]
+})
+
+
+# -------------------- #
+# !-- Gaia Queries --! #
+# -------------------- #
 
 
 
@@ -824,6 +849,37 @@ class GStar:
         if len(results) == 0:
             return []
         return np.array(results['source_id'].values, dtype=np.int64).astype(int).tolist()
+
+
+
+    # --------------- #
+    # !-- Detlims --! #
+    # --------------- #
+
+    def gost(self) -> pd.DataFrame:
+        """
+        Queries the GOST (Gaia Observation Scheduling Tool) database
+        for observation dates.
+
+        Returns
+        -------
+        pd.DataFrame
+            A pandas DataFrame containing the observation dates,
+            among other stuff.
+        """
+        ra_deg, dec_deg = self.ra_deg[0], self.dec_deg[0] # 2016 values
+        url = "https://gaia.esac.esa.int/gost/ObjVisSAP/gaiaobjvisap"
+        params = {"s_ra": f"{ra_deg:.8f}", "s_dec": f"{dec_deg:.8f}"}
+        headers = {"accept": "application/x-votable+xml;charset=utf-8;serialization=TABLEDATA"}
+
+        response = requests.get(url, params=params, headers=headers, timeout=60)
+        response.raise_for_status()
+
+        votable = Table.read(io.BytesIO(response.content), format="votable")
+        return votable.to_pandas()
+
+
+
 
 
 
