@@ -257,7 +257,8 @@ class EInversion:
         median: np.ndarray,
         sigma_upper: np.ndarray,
         sigma_lower: np.ndarray,
-        input_array: np.ndarray = None
+        input_array: np.ndarray = None,
+        interp: bool = True
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Sorts the median array and updates uncertainties accordingly.
@@ -274,6 +275,10 @@ class EInversion:
             If not provided, the algorithm assumes that the inputs were already sorted, and hence it only has to sort
             the median and update the uncertainties accordingly. If provided, the `input_array` will be used to extract
             its sorting indices, who will be applied to the output maps. 
+        interp : bool
+            If the model outputs NaN values that are not leading or trailing w.r.t. the input array, they are replaced
+            by linear interpolation of the nearest valid values. This is useful for combined grids with multiple models,
+            where their respective parameter space might not overlap. If False, the NaN values are left untouched.
         
         Returns
         -------
@@ -352,6 +357,12 @@ class EInversion:
         median_sorted_full[~nan_mask] = median_sorted
         q16_sorted_full[~nan_mask] = q16_sorted
         q84_sorted_full[~nan_mask] = q84_sorted
+
+        # 5. Interpolate over nan values if requested
+        if interp:
+            median_sorted_full = pd.Series(median_sorted_full).interpolate(method="linear", limit_area="inside").to_numpy()
+            q16_sorted_full = pd.Series(q16_sorted_full).interpolate(method="linear", limit_area="inside").to_numpy()
+            q84_sorted_full = pd.Series(q84_sorted_full).interpolate(method="linear", limit_area="inside").to_numpy()
 
         return median_sorted_full, q84_sorted_full - median_sorted_full, q16_sorted_full - median_sorted_full
 
@@ -629,14 +640,14 @@ class FallbackEInversion(EInversion):
 
     def __init__(
         self,
-        model: Literal["atmo", "hades", "linder", "sonora"] = "hades,atmo",
+        model: Literal["atmo", "hades", "linder", "sonora", "bhac"] = "hades,atmo,bhac",
         scheme: str = "f1140c,age,met->mass"
     ):
         """
         Parameters
         ----------
         model : str
-            The evolutionary model to use. Must be one of ["atmo", "hades", "linder", "sonora"]. You can pass multiple models
+            The evolutionary model to use. Must be one of ["atmo", "hades", "linder", "sonora", "bhac"]. You can pass multiple models
             separated by commas, in which case, for every individual prediction, the first model that does not return
             NaN will be used.
         scheme : str
@@ -724,6 +735,6 @@ if __name__ == "__main__":
     EInversion.download()
 
     Message.title("Test")
-    for model in ["hades", "atmo", "linder", "sonora"]:
+    for model in ["hades", "atmo", "linder", "sonora", "bhac"]:
         xi = EInversion(model=model, scheme="m,a,z -> f1500w")
         print(xi)
