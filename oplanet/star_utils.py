@@ -45,6 +45,18 @@ os.makedirs(cache_dir, exist_ok=True)
 import json
 
 
+# ------------------- #
+# !-- Setup Cache --! #
+# ------------------- #
+
+simbad_cache_file = os.path.join(cache_dir, "simbad_cache.json")
+if os.path.exists(simbad_cache_file):
+    with open(simbad_cache_file, "r") as f:
+        simbad_cache = json.load(f)
+else:
+    simbad_cache = {}
+
+
 class StarInfoRetriever:
     photometric_points = [
         "WISE:W1", "WISE:W2", "WISE:W3", "WISE:W4",
@@ -55,11 +67,39 @@ class StarInfoRetriever:
     catalog_priorities = ["HD", "HIP", "GJ", "LHS", "HR", "TOI", "LTT", "L", "2MASS", "TYC", "BD", "SAO"]
     radius = 2
     spline_order = 2
-    _cache = {}
-    _star_distance_cache = {}
-    _star_aliases_cache = {}
-    _star_coords_cache = {}
-    _star_sptype_cache = {}
+
+    def _add2cache(
+        self,
+        star_name: str,
+        distance_pc: float = None,
+        aliases: list[str] = None,
+        coords: tuple[float, float] = None,
+        sptype: str = None,
+    ):
+        cache_name = StarInfoRetriever.star_to_cache_name(star_name)
+        if cache_name not in simbad_cache:
+            simbad_cache[cache_name] = {
+                "distance_pc": distance_pc,
+                "aliases": aliases,
+                "coords": coords,
+                "sptype": sptype,
+            }
+            with open(simbad_cache_file, "w") as f:
+                json.dump(simbad_cache, f, indent=4)
+            return
+
+        if distance_pc is not None:
+            simbad_cache[cache_name]["distance_pc"] = distance_pc
+        if aliases is not None:
+            simbad_cache[cache_name]["aliases"] = aliases
+        if coords is not None:
+            simbad_cache[cache_name]["coords"] = coords
+        if sptype is not None:
+            simbad_cache[cache_name]["sptype"] = sptype
+
+        with open(simbad_cache_file, "w") as f:
+            json.dump(simbad_cache, f, indent=4)
+
         
     # ---------------- #
     # !-- Distance --! #
@@ -83,8 +123,9 @@ class StarInfoRetriever:
         star = StarInfoRetriever.get_star_name(star)
 
         # 1. Check cache
-        if StarInfoRetriever.star_to_cache_name(star) in StarInfoRetriever._star_distance_cache:
-            return StarInfoRetriever._star_distance_cache[StarInfoRetriever.star_to_cache_name(star)]
+        cache_name = StarInfoRetriever.star_to_cache_name(star)
+        if cache_name in simbad_cache and simbad_cache[cache_name]["distance_pc"] is not None:
+            return simbad_cache[cache_name]["distance_pc"]
         
         # 2. Query Simbad
         Simbad = _get_simbad()
@@ -98,7 +139,10 @@ class StarInfoRetriever:
             plx_kwd = "plx_value"
         parallax_mas = result[plx_kwd][0]
         distance_pc = 1e3 / parallax_mas
-        StarInfoRetriever._star_distance_cache[StarInfoRetriever.star_to_cache_name(star)] = distance_pc
+        StarInfoRetriever._add2cache(
+            star,
+            distance_pc=distance_pc
+        )
 
         # 4. Return
         return StarInfoRetriever.get_star_distance_pc(star)
@@ -121,8 +165,9 @@ class StarInfoRetriever:
         star = StarInfoRetriever.get_star_name(star)
         
         # 1. Check cache
-        if StarInfoRetriever.star_to_cache_name(star) in StarInfoRetriever._star_coords_cache:
-            return StarInfoRetriever._star_coords_cache[StarInfoRetriever.star_to_cache_name(star)]
+        cache_name = StarInfoRetriever.star_to_cache_name(star)
+        if cache_name in simbad_cache and simbad_cache[cache_name]["coords"] is not None:
+            return simbad_cache[cache_name]["coords"]
         
         # Query Simbad
         Simbad = _get_simbad()
@@ -136,7 +181,10 @@ class StarInfoRetriever:
         except KeyError:
             ra_kwd, dec_kwd = "ra", "dec"
         coords = (result[0][ra_kwd], result[0][dec_kwd])
-        StarInfoRetriever._star_coords_cache[StarInfoRetriever.star_to_cache_name(star)] = coords
+        StarInfoRetriever._add2cache(
+            star,
+            coords=coords
+        )
         return StarInfoRetriever.get_star_coords(star)
 
     @staticmethod
@@ -157,8 +205,9 @@ class StarInfoRetriever:
         star = StarInfoRetriever.get_star_name(star)
         
         # 1. Check cache
-        if StarInfoRetriever.star_to_cache_name(star) in StarInfoRetriever._star_sptype_cache:
-            return StarInfoRetriever._star_sptype_cache[StarInfoRetriever.star_to_cache_name(star)]
+        cache_name = StarInfoRetriever.star_to_cache_name(star)
+        if cache_name in simbad_cache and simbad_cache[cache_name]["sptype"] is not None:
+            return simbad_cache[cache_name]["sptype"]
 
         # 2. Query Simbad
         Simbad = _get_simbad()
@@ -175,7 +224,10 @@ class StarInfoRetriever:
         sptype = result[sptype_kwd][0]
 
         # 4. Cache the result
-        StarInfoRetriever._star_sptype_cache[StarInfoRetriever.star_to_cache_name(star)] = sptype
+        StarInfoRetriever._add2cache(
+            star,
+            sptype=sptype
+        )
 
         return sptype
 
@@ -228,10 +280,10 @@ class StarInfoRetriever:
         star_name = StarInfoRetriever.get_star_name(star_name)
         
         # Check cache first
-        if StarInfoRetriever.star_to_cache_name(star_name) in StarInfoRetriever._star_aliases_cache:
-            return StarInfoRetriever._star_aliases_cache[StarInfoRetriever.star_to_cache_name(star_name)]
-        
-        
+        cache_name = StarInfoRetriever.star_to_cache_name(star_name)
+        if cache_name in simbad_cache and simbad_cache[cache_name]["aliases"] is not None:
+            return simbad_cache[cache_name]["aliases"]
+
         # Configure Simbad to return all identifiers
         Simbad = _get_simbad()
         custom_simbad = Simbad()
@@ -268,7 +320,10 @@ class StarInfoRetriever:
             return len(StarInfoRetriever.catalog_priorities) # lowest priority if not found
         aliases.sort(key=alias_priority)
 
-        StarInfoRetriever._star_aliases_cache[StarInfoRetriever.star_to_cache_name(star_name)] = aliases
+        StarInfoRetriever._add2cache(
+            star_name,
+            aliases=aliases
+        )
         return aliases
     
     @staticmethod
