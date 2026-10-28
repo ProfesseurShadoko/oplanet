@@ -63,8 +63,8 @@ class StarInfoRetriever:
     radius = 2
     spline_order = 2
 
+    @staticmethod
     def _add2cache(
-        self,
         star_name: str,
         distance_pc: float = None,
         aliases: list[str] = None,
@@ -72,7 +72,7 @@ class StarInfoRetriever:
         sptype: str = None,
     ):
         cache_name = StarInfoRetriever.star_to_cache_name(star_name)
-        simbad_cache = self.get_cache()
+        simbad_cache = StarInfoRetriever.get_cache()
         if cache_name not in simbad_cache:
             simbad_cache[cache_name] = {
                 "distance_pc": distance_pc,
@@ -96,7 +96,8 @@ class StarInfoRetriever:
         with open(simbad_cache_file, "w") as f:
             json.dump(simbad_cache, f, indent=4)
 
-    def get_cache(self):
+    @staticmethod
+    def get_cache():
         return json.load(open(simbad_cache_file, "r"))
 
         
