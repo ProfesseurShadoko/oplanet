@@ -50,11 +50,6 @@ import json
 # ------------------- #
 
 simbad_cache_file = os.path.join(cache_dir, "simbad_cache.json")
-if os.path.exists(simbad_cache_file):
-    with open(simbad_cache_file, "r") as f:
-        simbad_cache = json.load(f)
-else:
-    simbad_cache = {}
 
 
 class StarInfoRetriever:
@@ -77,6 +72,7 @@ class StarInfoRetriever:
         sptype: str = None,
     ):
         cache_name = StarInfoRetriever.star_to_cache_name(star_name)
+        simbad_cache = self.get_cache()
         if cache_name not in simbad_cache:
             simbad_cache[cache_name] = {
                 "distance_pc": distance_pc,
@@ -99,6 +95,9 @@ class StarInfoRetriever:
 
         with open(simbad_cache_file, "w") as f:
             json.dump(simbad_cache, f, indent=4)
+
+    def get_cache(self):
+        return json.load(open(simbad_cache_file, "r"))
 
         
     # ---------------- #
@@ -124,6 +123,7 @@ class StarInfoRetriever:
 
         # 1. Check cache
         cache_name = StarInfoRetriever.star_to_cache_name(star)
+        simbad_cache = StarInfoRetriever.get_cache()
         if cache_name in simbad_cache and simbad_cache[cache_name]["distance_pc"] is not None:
             return simbad_cache[cache_name]["distance_pc"]
         
@@ -166,6 +166,7 @@ class StarInfoRetriever:
         
         # 1. Check cache
         cache_name = StarInfoRetriever.star_to_cache_name(star)
+        simbad_cache = StarInfoRetriever.get_cache()
         if cache_name in simbad_cache and simbad_cache[cache_name]["coords"] is not None:
             return simbad_cache[cache_name]["coords"]
         
@@ -206,6 +207,7 @@ class StarInfoRetriever:
         
         # 1. Check cache
         cache_name = StarInfoRetriever.star_to_cache_name(star)
+        simbad_cache = StarInfoRetriever.get_cache()
         if cache_name in simbad_cache and simbad_cache[cache_name]["sptype"] is not None:
             return simbad_cache[cache_name]["sptype"]
 
@@ -281,6 +283,7 @@ class StarInfoRetriever:
         
         # Check cache first
         cache_name = StarInfoRetriever.star_to_cache_name(star_name)
+        simbad_cache = StarInfoRetriever.get_cache()
         if cache_name in simbad_cache and simbad_cache[cache_name]["aliases"] is not None:
             return simbad_cache[cache_name]["aliases"]
 
