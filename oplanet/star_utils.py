@@ -9,16 +9,19 @@ from oakley import *
 from .sfilter import SFilter
 
 _Simbad = None
+_conf = None
+
 def _get_simbad():
     global _Simbad
+
     if _Simbad is not None:
         return _Simbad
     try:
         from astroquery.simbad import Simbad
-        Simbad.add_votable_fields('parallax')
-        Simbad.add_votable_fields('sptype')
-        _Simbad = Simbad
-        return Simbad
+        _Simbad = Simbad()
+        _Simbad.add_votable_fields('parallax')
+        _Simbad.add_votable_fields('sptype')
+        return _Simbad
     except Exception as e:
         Message("Failed to import Simbad. Check your internet connection.", "!")
         raise e
@@ -34,11 +37,20 @@ def use_simbad_mirror(use_mirror: bool = True):
     use_mirror : bool, optional
         If True, use the Harvard mirror. If False, use the default Unistra mirror.
     """
-    simbad = _get_simbad()
+    global _conf
+    if _conf is None:
+        try:
+            from astroquery.simbad import conf
+            _conf = conf
+        except Exception as e:
+            Message("Failed to import Simbad configuration. Check your internet connection.", "!")
+            raise e
     if use_mirror:
-        simbad.server = "simbad.harvard.edu"
+        _conf.server = "simbad.harvard.edu"
     else:
-        simbad.server = "simbad.cds.unistra.fr"
+        _conf.server = "simbad.cds.unistra.fr"
+    global _Simbad
+    _Simbad = None # reset Simbad to force re-import with new server
         
 
 
@@ -120,7 +132,7 @@ class StarInfoRetriever:
         if not os.path.exists(simbad_cache_file):
             with open(simbad_cache_file, "w") as f:
                 json.dump({}, f)
-                
+
         return json.load(open(simbad_cache_file, "r"))
 
         
