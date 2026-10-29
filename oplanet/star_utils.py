@@ -24,6 +24,25 @@ def _get_simbad():
         raise e
 
 
+def use_simbad_mirror(use_mirror: bool = True):
+    """
+    When the Simbad database is down, you can use the mirror at simbad.harvard.edu instead of the default simbad.cds.unistra.fr.
+    This function sets the mirror to use. By default, it uses the unistra mirror.
+
+    Parameters
+    ----------
+    use_mirror : bool, optional
+        If True, use the Harvard mirror. If False, use the default Unistra mirror.
+    """
+    simbad = _get_simbad()
+    if use_mirror:
+        simbad.server = "simbad.harvard.edu"
+    else:
+        simbad.server = "simbad.cds.unistra.fr"
+        
+
+
+
 from astropy import units as u
 from astropy import constants as const
 from astropy.coordinates import SkyCoord
@@ -98,6 +117,10 @@ class StarInfoRetriever:
 
     @staticmethod
     def get_cache():
+        if not os.path.exists(simbad_cache_file):
+            with open(simbad_cache_file, "w") as f:
+                json.dump({}, f)
+                
         return json.load(open(simbad_cache_file, "r"))
 
         

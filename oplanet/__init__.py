@@ -1,9 +1,9 @@
 
 
-__version__ = "2.3.6"
+__version__ = "2.3.7"
 from .oconfig import oplanet_config
 
-from .star_utils import get_photometry_jy, get_distance_pc, get_star_coords, get_spectral_type
+from .star_utils import get_photometry_jy, get_distance_pc, get_star_coords, get_spectral_type, use_simbad_mirror
 from .star_utils import get_star_aliases, is_star_alias, get_star_name, parse_star_name
 
 from .sfilter import SFilter
