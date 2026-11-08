@@ -27,6 +27,8 @@ def _get_simbad():
         raise e
 
 
+vizier_url = "https://vizier.cds.unistra.fr"
+
 def use_simbad_mirror(use_mirror: bool = True):
     """
     When the Simbad database is down, you can use the mirror at simbad.harvard.edu instead of the default simbad.cds.unistra.fr.
@@ -38,6 +40,7 @@ def use_simbad_mirror(use_mirror: bool = True):
         If True, use the Harvard mirror. If False, use the default Unistra mirror.
     """
     global _conf
+    global vizier_url
     if _conf is None:
         try:
             from astroquery.simbad import conf
@@ -47,8 +50,10 @@ def use_simbad_mirror(use_mirror: bool = True):
             raise e
     if use_mirror:
         _conf.server = "simbad.harvard.edu"
+        vizier_url = "https://vizier.cfa.harvard.edu"
     else:
         _conf.server = "simbad.cds.unistra.fr"
+        vizier_url = "https://vizier.cds.unistra.fr"
     global _Simbad
     _Simbad = None # reset Simbad to force re-import with new server
         
@@ -418,7 +423,7 @@ class StarInfoRetriever:
             try:
                 Message(f"Trying star name: {cstr(self.star).green()}")
                 response = requests.get(
-                    f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
+                    f"{vizier_url}/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
                     timeout=(10, 30),
                 )
                 response.raise_for_status()
@@ -431,7 +436,7 @@ class StarInfoRetriever:
                     with Message(f"Trying star name: {cstr(alias).green()}"):
                         try:
                             response = requests.get(
-                                f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
+                                f"{vizier_url}/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
                                 timeout=(10, 30),
                             )
                             response.raise_for_status()
@@ -558,7 +563,7 @@ class StarInfoRetriever:
                     time.sleep(1)
                     Message(f"Trying star name: {cstr(self.star).green()}")
                     sed = Table.read(
-                        f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
+                        f"{vizier_url}/viz-bin/sed?-c={quote(self.star)}&-c.rs={self.radius}",
                         format="votable"
                     )
                     break
@@ -573,7 +578,7 @@ class StarInfoRetriever:
                         try:
                             time.sleep(1)
                             sed = Table.read(
-                                f"https://vizier.cds.unistra.fr/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
+                                f"{vizier_url}/viz-bin/sed?-c={quote(alias)}&-c.rs={self.radius}",
                                 format="votable"
                             )
                             Message("The retrieval was successful, moving on!", "#")
