@@ -21,6 +21,7 @@ def _get_simbad():
         _Simbad = Simbad()
         _Simbad.add_votable_fields('parallax')
         _Simbad.add_votable_fields('sptype')
+        _Simbad.add_votable_fields('ids')
         return _Simbad
     except Exception as e:
         Message("Failed to import Simbad. Check your internet connection.", "!")
@@ -330,11 +331,7 @@ class StarInfoRetriever:
 
         # Configure Simbad to return all identifiers
         Simbad = _get_simbad()
-        custom_simbad = Simbad()
-        custom_simbad.TIMEOUT = 60
-        custom_simbad.add_votable_fields('ids')  # 'ids' is the cross-id list
-
-        result = custom_simbad.query_object(star_name)
+        result = Simbad.query_object(star_name)
         
         if result is None:
             return []  # star not found
